@@ -1,0 +1,70 @@
+HYDROBOT: Real-Time Flood Rescue Detection Robot Using Thermal Imaging Sensor
+
+Rational
+In recent years, the severity of floods has intensified in the Philippines due to climate change, clogged drainage systems, urbanization, and prolonged rainfall often leading to severe flooding that traps individuals in. Typhoons and especially super typhoons regularly submerge entire communities leaving victims stranded on rooftops or are swept away by strong currents. Flooding itself is among the deadliest and most common natural disasters affecting the Philippines. Identifying the exact location of victims in flooded areas is extremely difficult especially when the water is murky and is also filled in debris making it zero visibility. Since the water is dirty, muddy, and full of trash, they can’t see anything clearly making manual searches more difficult. Because of that,  rescuers are having a hard time rescuing people who need help. Rescuers often don’t know where to look, and sometimes people can’t call for help because the phone lines are down. This means rescuers have to search without knowing where anyone is, which is dangerous and takes a lot of time. 
+Due to its location on the Pacific Ring of Fire, the Philippines is vulnerable to natural geological hazards such as earthquakes and volcanic eruptions.  In the Philippines, hazards related to climate change are particularly evident, including typhoons, floods, landslides, and wind gusts.  In 2020, the country was struck by twenty-two typhoons, resulting in property and resource damages exceeding one million, numerous fatalities, and the displacement of over one hundred thousand individuals. (De leon & Magcale-Macandog, 2022)
+Flood events impact more individuals worldwide than any other kind of environmental hazard, and their severity and frequency are anticipated to rise due to climate and demographic changes. Research into flood vulnerability has generally concentrated on hazards and exposure (the population and livelihoods that could be affected by the event). (Tellman et al., 2020)
+According to the World Bank (2022), More than 60% of Filipinos are exposed to flood-related prone areas. Rescue operations often rely on manual searches or surface level equipment often struggles to detect victims beneath murky and debris filled areas. These methods result mostly in delays and lower survival rates. 
+The use of thermal imaging sensors gives significant help in overcoming these limitations. Though water partially blocks infrared radiation, with specially designed thermal sensors placed slightly above the waterline facing downward it can be possible for the sensor to detect the slightest heat change. This proposed HYDRABOT system will be designed to function as a submersible robot equipped with thermal imaging capabilities that can locate victims by scanning flooded areas beneath or above the water surface. This shows us why we need effective and advanced strategies to deal with the disasters. By using sonar and thermal imaging, the speed and accuracy of the detection of the HYDRABOT could be improved by these tools. Also, training for preparation and organized early warning systems can trigger locals to react faster before rescuers come.
+Statement of the Problem
+1. Can HYDROBOT effectively detect and differentiate the victim's heat signature just below the water surface?
+2. How effective is HYDROBOT at locating and detecting victims who are
+2.1. Fully submerged but has a heat signature 
+2.2. Trapped under floating debris
+2.3. Deceased but still emitting residual heat
+3. How can HYDROBOT gather and give data to the user while in semi submerged and fully submerged?
+Hypothesis
+Ho: The use of HYDROBOT to detect human heat signatures in submerged flooded areas does not have a significant difference compared to manual methods.
+Ha: The use of HYDROBOT to detect human heat signatures in submerged flooded areas does have a significant  difference compared to traditional manual methods.
+
+
+Engineering Goals
+	This study aims to design and develop a robot that can locate trapped individuals under floating debris that can help agencies that focus on rescuing victims such as the Philippine Red Cross (PRC).
+The wheels on the robot will carry the device so that it can go through tight spaces. The thermal camera will detect the victims heat signatures and will send that information to the rescue team to help the victim. The inside of the robot will have the Raspberry and other electrical wires that will connect all of the other components on the robot.
+Expected Outcomes
+The researchers aim to develop HYDRABOT, a search and rescue robot with a thermal imagery camera embedded to help with search and rescue in high flooding, like those that are caused by thunderstorms or typhoons. This submersible thermographic device is expected to detect human body heat in real time while they are trapped under floating debris.
+
+
+
+Procedure/General Procedures
+ 
+Figure 1: Methodology Flowchart
+Planning and Gathering of Materials
+The researchers aim to develop a thermal imaging technology to generate a submersible heat detection robot that can effectively locate trapped individuals resulting in enhancing search and rescue to increase survival rates in floods.
+	Specific equipment and materials are needed to construct HYDROBOT for its missions in flood rescue detection. To make the robot’s prototype body, the researchers initially considered using Lego Technic bricks due to their modularity and ease of use. This allows for quick iterations and structural testing. Once the HYDROBOT’S proves functional with this temporary frame, it will be upgraded to a more robust structure using aluminum or marine grade materials such as ABS plastic and acrylic plastic. These materials are chosen for their durability, corrosion resistance and capability to withstand prolonged use in water. 
+	The electronics will be housed in an IP68 rated waterproof casing, typically made from ABS plastic, and sealed with silicone gaskets or rubber seals to prevent water from leaking in. To make it a submersible, two 60 ml ballast tanks that can be filled with water to make it submerge and air to make it buoyant at will.
+	These are non-absorbent and maintain floatation under pressure. Furthermore, epoxy resin and marine grade coating will be applied to some parts, and corrosion-resistant sprays will be used to protect electronics and metallic components from water damage. All important and supplementary materials will either be sourced from trusted platforms like A+, shopee, and Lazada.
+The internal components of the HYDROBOT includes the Raspberry Pi Zero 2 W, Lego Technic Bricks, DRV8833 Dual H-Bridge Motor Driver, Lego Rechargeable Battery Box 9V (8878), Pololu S7V8F5 5V Voltage Regulator, Lego PF L-Motor (For Drone Propeller), Lego PF M-Motor (For Lego Propeller 3 Blade), Lego EV3 Medium Servo Motor, 27 MHz controller, magnetic couplings, and thermal sensor. 
+
+Construction of the Device
+To successfully construct the HEATBOT, the researchers will follow these steps:
+1.) Frame 
+The frame is made from acrylic plastic to keep it strong yet lightweight. Furthermore, for the base aluminum is used for corrosion resistance and mobility. The robot becomes a more robust structure using aluminum or marine grade materials such as ABS plastic and acrylic plastic.
+2.) Power System  
+The power system uses a LEGO Rechargeable Battery Box 9V and a Pololu 2123 S7V8F5 Voltage Regulator. The LEGO Rechargeable Battery Box 9V provides a centralized energy source and since it’s rechargeable it is sustainable and compact. For the Pololu 2123 S7V8F5 Voltage Regulator, it converts the variable voltage from the battery to a safe and consistent 5V. The wiring is carefully set up to make sure electricity flows smoothly and safely.  
+3.) Motor System  
+A Lego PF L-Motor is used for the main propeller that makes the robot go forwards and backwards and the  Lego PF M-Motor is used for Lego Propeller 3 Blade so the HYDROBOT can go either left or right.
+4.) Sensor System  
+The thermal sensor is placed at the front of the robot to detect obstacles and measure distances. It is securely attached to avoid shifting during operation.  
+5.) Control Circuitry  
+The Raspberry Pi Zero 2 W is set up as the brain of HEATBOT. It takes in signals from the thermal sensor and sends information to the rescuers. All parts are connected through a circuit and a program is uploaded to the Raspberry Pi to control the robot’s functions.  
+6.) Final Assembly and Testing  
+Once everything is assembled, the researchers check if the structure is stable and the wiring is properly connected. The researchers will run tests to see how well HYDROBOT detects heat, navigates, and sends data. Any problems found are fixed to improve its performance.
+
+Testing of the Device
+After constructing HYDRABOT the researchers will carry out a number of tests to assess the robot's performance. Testing will begin once all necessary components are secured and obtained, and the testing environment is properly prepared. These tests will simulate real-life scenarios such as high flooding to assess the HYDRABOT's ability to detect heat signatures, navigate obstacles, and transmit data accurately.
+The first test will focus on heat detection. The researchers will use a swimming pool filled with a cluster of objects such as weighted and various sized materials to simulate real-life objects. The time taken for the detection of the individual will be recorded and the accuracy of the detection will be measured by comparing the detected location to the actual location of the heat source. This test will be repeated with varying levels of debris. 
+The second test will evaluate the HEATBOT's navigation performance. An obstacle course will be constructed using objects and is then placed on the water to simulate realistic rescue scenarios. The HYDROBOT will be operated through the obstacle course from a starting point to a designated endpoint. Researchers will monitor its ability to navigate without getting stuck or sustaining structural damage. The time it takes to complete the course will be recorded, and the robot’s structural integrity will be inspected after each trial.
+The third test will assess the device's data transmission capabilities. The HYDROBOT will be operated in various lighting conditions and turbidity to test its ability to transmit detection data. Researchers will measure the delay between the detection of heat and the reception of data and will also check for any loss or inaccuracy in the transmitted data.
+Lastly, the researchers will examine the battery life of the HEATBOT. For this test, the HEATBOT's battery will be fully charged before each trial, and the device will be operated continuously in a simulated environment. Researchers will record the duration of operation until the battery is completely drained.
+During the testing process, the researchers will record several key factors, such as the time taken to detect heat sources, the time required to navigate obstacles, delays in data transmission, and the duration of battery life. These tests will provide great valuable data to help refine the HEATBOT and ensure its effectiveness and reliability for actual rescue operation.
+
+Risks and Safety
+The risks that the researchers will encounter while carrying out the research are handling the electrical components and testing in deep waters. To guarantee the safety of the researchers, they will be equipped with the necessary personal protective equipment such as rash guards. During the construction and testing of the research, the researchers shall always be monitored by adults and proper authorities (lifeguards).
+
+Data Analysis
+The researchers will use One-way ANOVA to analyze the quantitative data gathered during the testing of the HEATBOT. This analysis will determine the device's performance in detecting human heat across various simulated environments.
+Discussion of Results and Conclusions
+Through a Canva presentation, we will talk about the results, and in the process, we will showcase the completed work. The presentation will cover the study's objectives and provide some contextual information. It will additionally encompass our hypothesis and the constraints of the research. The presentation will address the goals of the study in addition to providing some historical background. It will also include significant elements like the design and the overall performance of the robot.
+
+
