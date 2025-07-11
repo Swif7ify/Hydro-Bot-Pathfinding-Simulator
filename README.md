@@ -11,6 +11,17 @@ A real-time flood rescue detection robot simulation using thermal imaging sensor
 -   **Sonar Navigation**: Avoids debris and obstacles underwater
 -   **Multi-depth Search**: Operates at surface, shallow, medium, and deep water levels
 -   **Real-time Data**: Transmits detection data to rescue teams
+-   **Target Collection**: Automatically rescues victims when approaching within 2 meters
+-   **Interactive Rescue**: Visual collection effects with real-time feedback
+
+### 🎥 Camera Views
+
+-   **First-Person**: Immersive view from robot's perspective (default)
+-   **Third-Person**: Follow camera behind the robot for better navigation
+-   **Underwater**: Close-up following view optimized for underwater operations
+-   **Thermal**: Specialized thermal imaging view
+-   **Overview**: Bird's eye view for strategic planning
+-   **Sonar**: Side view optimized for sonar visualization
 
 ### 🌊 Water Environment
 
@@ -27,13 +38,15 @@ A real-time flood rescue detection robot simulation using thermal imaging sensor
 4. **Debris Navigation**: Optimized path around obstacles
 5. **Thermal Tracking**: Focuses on detected heat signatures
 
-### 🎯 Heat Signature Detection
+### 🎯 Heat Signature Detection & Collection
 
 -   **Human Survivor** (37°C) - Priority 1: Immediate rescue
 -   **Injured Victim** (35°C) - Priority 2: Urgent medical attention
 -   **Deceased Body** (28°C) - Priority 3: Recovery operation
 -   **Trapped Animal** (39°C) - Priority 4: Animal rescue
 -   **Submerged Vehicle** (22°C) - Check for occupants
+
+**Collection System**: Approach within 2 meters of any target to automatically collect it with visual effects and status updates.
 
 ## Controls
 
@@ -49,7 +62,24 @@ A real-time flood rescue detection robot simulation using thermal imaging sensor
 -   **W/S**: Move forward/backward
 -   **A/D**: Turn left/right
 -   **Q/E**: Dive/surface
--   **Mouse**: Click and hold movement buttons
+-   **Tab**: Toggle control panel
+-   **Camera Button**: Cycle through camera views (First-Person → Third-Person → Underwater → Thermal → Overview → Sonar)
+
+### Camera Views
+
+-   **First-Person**: Experience the rescue from robot's perspective - perfect for immersive target collection
+-   **Third-Person**: Follow behind the robot for better spatial awareness and navigation
+-   **Underwater**: Optimized close-up view for underwater operations
+-   **Thermal**: Specialized thermal imaging view for heat detection
+-   **Overview**: Strategic bird's eye view for mission planning
+-   **Sonar**: Side view optimized for sonar and obstacle visualization
+
+### Target Collection
+
+-   **Automatic Collection**: Approach within 2 meters of victims or debris
+-   **Visual Effects**: Green flash and fade-out animation when collecting targets
+-   **Real-time Updates**: Immediate feedback on rescue count and mission status
+-   **Priority System**: Different targets provide different mission feedback
 
 ### Emergency Controls
 
@@ -121,12 +151,16 @@ The HYDROBOT uses specially designed thermal sensors placed above the waterline 
 
 ## Simulation Tips
 
-1. **Start with Surface Sweep**: Good for initial reconnaissance
-2. **Use Rescue Mode**: When you need to prioritize human survivors
-3. **Monitor Battery**: Emergency surface when battery is low
-4. **Adjust Turbidity**: Higher turbidity reduces thermal detection range
-5. **Watch for Debris**: Robot will automatically avoid obstacles
-6. **Check Heat Signatures**: Different colors indicate different types of victims
+1. **Start with First-Person**: Get immersed in the rescue experience right away
+2. **Switch to Third-Person**: When you need better navigation and spatial awareness
+3. **Use Surface Sweep**: Good for initial reconnaissance in auto mode
+4. **Manual Collection**: Drive close to victims (within 2m) to automatically rescue them
+5. **Use Rescue Mode**: When you need to prioritize human survivors in auto mode
+6. **Monitor Battery**: Emergency surface when battery is low
+7. **Adjust Turbidity**: Higher turbidity reduces thermal detection range
+8. **Watch for Debris**: Robot will automatically avoid obstacles
+9. **Check Heat Signatures**: Different colors indicate different types of victims
+10. **Cycle Camera Views**: Use different views for different situations (first-person for collection, overview for strategy)
 
 ## Educational Value
 
@@ -137,6 +171,9 @@ This simulation demonstrates:
 -   Autonomous navigation and path planning
 -   Human-robot interaction in emergency scenarios
 -   The importance of technology in saving lives
+-   First-person perspective on rescue operations
+-   Target acquisition and collection systems
+-   Multi-perspective camera systems in robotics
 
 ## Future Enhancements
 
@@ -145,6 +182,9 @@ This simulation demonstrates:
 -   Advanced AI for victim prioritization
 -   Virtual reality integration
 -   Real-time weather effects
+-   More detailed target interaction
+-   Multiplayer rescue coordination
+-   Advanced debris physics
 
 ---
 
