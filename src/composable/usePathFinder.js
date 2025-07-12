@@ -1,22 +1,14 @@
-import { ref, onMounted, watch } from "vue";
+import { ref, onMounted, watch, reactive } from "vue";
 import * as THREE from "three";
 
 export function usePathFinder(mainCanvas, miniMapCanvas, miniMapFog) {
+	// Basic configuration refs
 	const poolSize = ref(50);
 	const waterDepth = ref(8);
-	const patterns = [
-		"surface-sweep",
-		"spiral-dive",
-		"depth-layers",
-		"debris-navigation",
-		"thermal-tracking",
-	];
-	const currentPattern = ref("thermal-tracking");
-	const modes = ["auto", "manual", "rescue-mode", "deep-search"];
-	const currentMode = ref("auto");
+	const currentMode = ref("manual");
 	const sonarRadius = ref(15);
 	const sonarNumRays = ref(60);
-	const thermalRadius = ref(18);
+	const thermalRadius = ref(5);
 	const texturesEnabled = ref(true);
 	const heatDetected = ref(false);
 	const numVictims = ref(8);
@@ -98,6 +90,7 @@ export function usePathFinder(mainCanvas, miniMapCanvas, miniMapFog) {
 		surface: false,
 	});
 
+	// Three.js objects
 	let hydrobot = null;
 	let waterSurface = null;
 	let poolBottom = null;
@@ -116,25 +109,11 @@ export function usePathFinder(mainCanvas, miniMapCanvas, miniMapFog) {
 	let animationId = null;
 
 	// Navigation and search state
-	let exploring = true;
 	let divingMode = false;
 	let surfaceMode = true;
 	let targetDepth = 0;
-	let currentSearchDepth = 0;
-	let searchLayerIndex = 0;
-	let spiralState = null;
-	let thermalScanActive = false;
 	let ballastTimer = 0;
 	let emergencyAscent = false;
-	let currentTarget = null;
-	let searchGrid = [];
-	let currentGridIndex = 0;
-	let lastPosition = { x: 0, z: 0, y: 0 };
-	let stuckTimer = 0;
-	let debrisAvoidance = false;
-	let thermalDetectionRange = 12;
-	let depthLayers = [0, -2, -4, -6]; // Surface, shallow, medium, deep
-	let currentLayer = 0;
 	let heatScanCooldown = 0;
 
 	// Geometry/materials for underwater rendering
@@ -154,67 +133,47 @@ export function usePathFinder(mainCanvas, miniMapCanvas, miniMapFog) {
 	let ballastTarget = 0;
 	let smoothingFactor = 0.2;
 
-	// Sensor data
-	let thermalData = {
+	// Initialize sensor data properly with reactive
+	const thermalData = reactive({
 		heatSources: [],
 		temperatureMap: new Map(),
 		victimDetections: [],
 		priorityTargets: [],
-	};
+	});
 
-	let sonarData = {
+	const sonarData = reactive({
 		obstacles: [],
 		debris: [],
 		bottomContour: [],
 		clearPaths: [],
-	};
+	});
 
-	// Mission planning
-	let missionData = {
+	// Mission planning with reactive
+	const missionData = reactive({
 		searchPattern: null,
 		waypoints: [],
 		currentWaypoint: 0,
 		rescueTargets: [],
 		completedAreas: new Set(),
 		searchLayers: [],
-	};
+	});
 
 	// Water environment effects
 	let waterParticles = null;
 	let thermalGradient = null;
 	let currentFlow = { x: 0.02, z: 0.01 }; // Simulated water current
 
-	// Toggle Functions
-	function togglePattern() {
-		const idx = patterns.indexOf(currentPattern.value);
-		currentPattern.value = patterns[(idx + 1) % patterns.length];
-		resetPatternStates();
-		generateMissionPlan();
-	}
+	// Enhanced detection data with real-time screen positions
+	const detectedObjectsWithOverlays = ref([]);
 
-	function toggleMode() {
-		const idx = modes.indexOf(currentMode.value);
-		currentMode.value = modes[(idx + 1) % modes.length];
+	// Initialization state
+	const isInitialized = ref(false);
+	const initializationError = ref(null);
 
-		// Mode-specific settings
-		if (currentMode.value === "manual") {
-			missionStatus.value = "MANUAL CONTROL";
-		} else if (currentMode.value === "rescue-mode") {
-			missionStatus.value = "RESCUE OPERATIONS";
-			robotSpeed.value = 0.18;
-			thermalRadius.value = 12;
-		} else if (currentMode.value === "deep-search") {
-			missionStatus.value = "DEEP WATER SEARCH";
-			robotSpeed.value = 0.08;
-			maxDiveDepth.value = 8;
-		} else {
-			missionStatus.value = "AUTO SEARCH";
-			robotSpeed.value = 0.12;
-		}
+	// Setup keyboard controls immediately
+	setupKeyboardControls();
 
-		generateMissionPlan();
-	}
-
+	// Manual control functions only
 	function toggleCameraMode() {
 		const modes = [
 			"first-person",
@@ -245,291 +204,130 @@ export function usePathFinder(mainCanvas, miniMapCanvas, miniMapFog) {
 		missionStatus.value = "EMERGENCY SURFACE";
 	}
 
-	// Mission planning for water rescue
-	function generateMissionPlan() {
-		missionData.waypoints = [];
-		searchGrid = [];
-
-		const poolS = poolSize.value;
-
-		if (currentPattern.value === "surface-sweep") {
-			generateSurfaceSweepWaypoints(poolS);
-		} else if (currentPattern.value === "spiral-dive") {
-			generateSpiralDiveWaypoints(poolS);
-		} else if (currentPattern.value === "depth-layers") {
-			generateDepthLayerWaypoints(poolS);
-		} else if (currentPattern.value === "debris-navigation") {
-			generateDebrisNavigationWaypoints(poolS);
-		} else if (currentPattern.value === "thermal-tracking") {
-			generateThermalTrackingWaypoints(poolS);
+	// Initialize Three.js and scene
+	function initializeThreeJS() {
+		if (!mainCanvas.value || !miniMapCanvas.value || !miniMapFog.value) {
+			console.warn("Canvas elements not ready yet");
+			return false;
 		}
 
-		currentGridIndex = 0;
-		missionData.currentWaypoint = 0;
-		areaSearched.value = 0;
-	}
+		try {
+			// Get canvas dimensions dynamically
+			const canvasRect = mainCanvas.value.getBoundingClientRect();
+			const canvasWidth = canvasRect.width || 800;
+			const canvasHeight = canvasRect.height || 600;
 
-	function generateSurfaceSweepWaypoints(poolS) {
-		// Surface scanning in a grid pattern with strict boundary enforcement
-		const step = 4;
-		const boundary = poolS / 2 - 6; // Keep well away from walls
-		let y = 0;
-
-		missionData.waypoints = []; // Clear existing waypoints
-
-		// Start from center and work outwards in a more controlled pattern
-		for (let x = -boundary; x <= boundary; x += step) {
-			for (let z = -boundary; z <= boundary; z += step) {
-				// Additional boundary check
-				if (Math.abs(x) <= boundary && Math.abs(z) <= boundary) {
-					missionData.waypoints.push({
-						x,
-						y,
-						z,
-						depth: 0,
-						scanMode: "thermal",
-						searchType: "surface",
-					});
-				}
-			}
-		}
-
-		// Ensure we have at least some waypoints
-		if (missionData.waypoints.length === 0) {
-			// Add fallback center point if no valid waypoints
-			missionData.waypoints.push({
-				x: 0,
-				y: 0,
-				z: 0,
-				depth: 0,
-				scanMode: "thermal",
-				searchType: "surface",
+			mainRenderer = new THREE.WebGLRenderer({
+				canvas: mainCanvas.value,
+				antialias: true,
+				alpha: false,
 			});
-		}
-	}
+			mainRenderer.setSize(canvasWidth, canvasHeight);
+			mainRenderer.shadowMap.enabled = true;
+			mainRenderer.shadowMap.type = THREE.PCFSoftShadowMap;
+			mainRenderer.setClearColor(0x001122, 1); // Dark blue underwater color
 
-	function generateSpiralDiveWaypoints(poolS) {
-		// Spiral pattern with depth changes and boundary enforcement
-		const points = 24;
-		const maxRadius = poolS / 2 - 6; // Reduced radius for safety
-		missionData.waypoints = [];
+			mainCamera = new THREE.PerspectiveCamera(
+				75,
+				canvasWidth / canvasHeight,
+				0.1,
+				200
+			);
 
-		// Start from surface and gradually increase depth
-		for (let i = 0; i < points; i++) {
-			const angle = (i / points) * Math.PI * 4;
-			const radius = (i / points) * maxRadius;
-			// More gradual depth change
-			const depth = -(i / points) * (maxDiveDepth.value * 0.8); // Only go to 80% of max depth
-
-			const x = Math.cos(angle) * radius;
-			const z = Math.sin(angle) * radius;
-
-			// Verify point is within boundaries
-			if (Math.abs(x) <= maxRadius && Math.abs(z) <= maxRadius) {
-				missionData.waypoints.push({
-					x,
-					y: depth,
-					z,
-					depth: depth,
-					scanMode: "thermal-sonar",
-					searchType: "spiral",
-				});
-			}
-		}
-
-		// Add surface point at start and end for complete pattern
-		if (missionData.waypoints.length > 0) {
-			missionData.waypoints.unshift({
-				x: 0,
-				y: -1, // Start slightly below surface
-				z: 0,
-				depth: -1,
-				scanMode: "thermal-sonar",
-				searchType: "spiral",
+			miniRenderer = new THREE.WebGLRenderer({
+				canvas: miniMapCanvas.value,
+				antialias: true,
 			});
+			miniRenderer.setSize(200, 200);
+			miniRenderer.setClearColor(0x004466, 1);
 
-			missionData.waypoints.push({
-				x: 0,
-				y: -1,
-				z: 0,
-				depth: -1,
-				scanMode: "thermal-sonar",
-				searchType: "spiral",
-			});
+			miniCamera = new THREE.OrthographicCamera(-30, 30, 30, -30, 1, 100);
+
+			fogCtx = miniMapFog.value.getContext("2d");
+
+			// Initialize thermal and sonar groups
+			thermalGroup = new THREE.Group();
+			sonarGroup = new THREE.Group();
+
+			setupWaterEnvironment();
+
+			// Mark as initialized
+			isInitialized.value = true;
+			initializationError.value = null;
+
+			console.log("Three.js initialized successfully");
+			return true;
+		} catch (error) {
+			console.error("Failed to initialize Three.js:", error);
+			initializationError.value = error.message;
+			return false;
 		}
 	}
 
-	function generateDepthLayerWaypoints(poolS) {
-		// Systematic layer-by-layer search with boundary enforcement
-		const step = 5;
-		const boundary = poolS / 2 - 6; // Increased safety margin
-		missionData.waypoints = [];
+	// Keyboard controls for manual operation
+	function setupKeyboardControls() {
+		// Remove any existing listeners first
+		document.removeEventListener("keydown", handleKeyDown);
+		document.removeEventListener("keyup", handleKeyUp);
 
-		// Define depth layers more precisely
-		const depthLayers = [
-			-1, // Just below surface
-			-2, // Shallow
-			-4, // Medium
-			-6, // Deep
-		];
-
-		for (let layer = 0; layer < depthLayers.length; layer++) {
-			const depth = depthLayers[layer];
-
-			// Add transition point to new layer
-			missionData.waypoints.push({
-				x: 0,
-				y: depth,
-				z: 0,
-				depth: depth,
-				scanMode: "thermal",
-				searchType: "layer",
-				layer: layer,
-				isTransition: true,
-			});
-
-			// Generate grid pattern for each layer
-			for (let x = -boundary; x <= boundary; x += step) {
-				for (let z = -boundary; z <= boundary; z += step) {
-					// Additional boundary verification
-					if (Math.abs(x) <= boundary && Math.abs(z) <= boundary) {
-						missionData.waypoints.push({
-							x,
-							y: depth,
-							z,
-							depth: depth,
-							scanMode: "thermal",
-							searchType: "layer",
-							layer: layer,
-						});
-					}
-				}
-			}
-		}
-
-		// Add return to surface at end
-		missionData.waypoints.push({
-			x: 0,
-			y: -1,
-			z: 0,
-			depth: -1,
-			scanMode: "thermal",
-			searchType: "layer",
-			layer: 0,
-			isTransition: true,
-		});
+		// Add new listeners
+		document.addEventListener("keydown", handleKeyDown);
+		document.addEventListener("keyup", handleKeyUp);
 	}
 
-	function generateDebrisNavigationWaypoints(poolS) {
-		// Navigate around debris while searching, with strict boundary enforcement
-		const numPoints = 16;
-		const safeRadius = poolS * 0.3;
-		const boundary = poolS / 2 - 6;
-		missionData.waypoints = [];
-
-		// Start at surface
-		missionData.waypoints.push({
-			x: 0,
-			y: -1,
-			z: 0,
-			depth: -1,
-			scanMode: "sonar-thermal",
-			searchType: "debris-avoid",
-		});
-
-		// Create circular pattern at medium depth
-		for (let i = 0; i < numPoints; i++) {
-			const angle = (i / numPoints) * Math.PI * 2;
-			const radius = Math.min(safeRadius, boundary);
-			const x = Math.cos(angle) * radius;
-			const z = Math.sin(angle) * radius;
-			const depth = -3; // Medium depth for better debris detection
-
-			// Verify point is within boundaries
-			if (Math.abs(x) <= boundary && Math.abs(z) <= boundary) {
-				missionData.waypoints.push({
-					x,
-					y: depth,
-					z,
-					depth: depth,
-					scanMode: "sonar-thermal",
-					searchType: "debris-avoid",
-				});
-			}
-		}
-
-		// Return to surface at end
-		missionData.waypoints.push({
-			x: 0,
-			y: -1,
-			z: 0,
-			depth: -1,
-			scanMode: "sonar-thermal",
-			searchType: "debris-avoid",
-		});
-	}
-
-	function generateThermalTrackingWaypoints(poolS) {
-		const boundary = poolS / 2 - 6;
-		missionData.waypoints = [];
-
-		if (thermalData.heatSources.length > 0) {
-			thermalData.heatSources.forEach((source) => {
-				// Ensure source is within boundaries
-				const safeX = Math.max(-boundary, Math.min(boundary, source.x));
-				const safeZ = Math.max(-boundary, Math.min(boundary, source.z));
-
-				// Create search pattern around detected heat
-				for (let angle = 0; angle < Math.PI * 2; angle += Math.PI / 4) {
-					const offset = 3;
-					const x = safeX + Math.cos(angle) * offset;
-					const z = safeZ + Math.sin(angle) * offset;
-
-					// Additional boundary check
-					if (Math.abs(x) <= boundary && Math.abs(z) <= boundary) {
-						missionData.waypoints.push({
-							x,
-							y: source.y,
-							z,
-							depth: source.y,
-							scanMode: "thermal-focus",
-							searchType: "thermal-track",
-							target: source,
-						});
-					}
-				}
-			});
-		}
-
-		// If no valid thermal waypoints, fall back to surface sweep
-		if (missionData.waypoints.length === 0) {
-			generateSurfaceSweepWaypoints(poolS);
+	function handleKeyDown(event) {
+		switch (event.key.toLowerCase()) {
+			case "w":
+				manualControl.value.forward = true;
+				break;
+			case "s":
+				manualControl.value.backward = true;
+				break;
+			case "a":
+				manualControl.value.left = true;
+				break;
+			case "d":
+				manualControl.value.right = true;
+				break;
+			case "q":
+				manualControl.value.dive = true;
+				break;
+			case "e":
+				manualControl.value.surface = true;
+				break;
+			case " ":
+				// Spacebar for target acquisition
+				event.preventDefault();
+				checkTargetCollection();
+				break;
 		}
 	}
 
-	// Reset and setup functions
-	function resetPatternStates() {
-		exploring = true;
-		divingMode = false;
-		surfaceMode = true;
-		targetDepth = 0;
-		currentSearchDepth = 0;
-		searchLayerIndex = 0;
-		spiralState = null;
-		thermalScanActive = false;
-		ballastTimer = 0;
-		emergencyAscent = false;
-		currentTarget = null;
-		debrisAvoidance = false;
-		currentLayer = 0;
-		heatScanCooldown = 0;
-		ballastLevel.value = 0;
-		currentDepth.value = 0;
-		victimsFound.value = 0;
-		areaSearched.value = 0;
-		batteryLevel.value = 100;
+	function handleKeyUp(event) {
+		switch (event.key.toLowerCase()) {
+			case "w":
+				manualControl.value.forward = false;
+				break;
+			case "s":
+				manualControl.value.backward = false;
+				break;
+			case "a":
+				manualControl.value.left = false;
+				break;
+			case "d":
+				manualControl.value.right = false;
+				break;
+			case "q":
+				manualControl.value.dive = false;
+				break;
+			case "e":
+				manualControl.value.surface = false;
+				break;
+		}
+	}
 
-		// Clear sensor data
+	// Clear sensor data for manual mode
+	function clearSensorData() {
 		thermalData.heatSources = [];
 		thermalData.temperatureMap.clear();
 		thermalData.victimDetections = [];
@@ -550,7 +348,7 @@ export function usePathFinder(mainCanvas, miniMapCanvas, miniMapFog) {
 	}
 
 	function resetSimulation() {
-		resetPatternStates();
+		clearSensorData();
 
 		if (mainScene) {
 			// Clear existing meshes
@@ -563,11 +361,10 @@ export function usePathFinder(mainCanvas, miniMapCanvas, miniMapFog) {
 
 		if (fogCtx) {
 			fogCtx.fillStyle = "rgba(0, 0, 0, 0.8)";
-			fogCtx.fillRect(0, 0, miniMapCanvas.width, miniMapCanvas.height);
+			fogCtx.fillRect(0, 0, 200, 200);
 		}
 
 		setupWaterEnvironment();
-		generateMissionPlan();
 	}
 
 	// Scene setup for underwater environment
@@ -657,6 +454,10 @@ export function usePathFinder(mainCanvas, miniMapCanvas, miniMapFog) {
 			hydrobot.add(robotLight.target);
 		}
 
+		// Add thermal and sonar groups to scene
+		if (thermalGroup) mainScene.add(thermalGroup);
+		if (sonarGroup) mainScene.add(sonarGroup);
+
 		// Spawn initial debris and victims
 		spawnDebris();
 		spawnVictims();
@@ -667,16 +468,15 @@ export function usePathFinder(mainCanvas, miniMapCanvas, miniMapFog) {
 		// Ensure hydrobot is defined before starting animation
 		setTimeout(() => {
 			if (hydrobot && mainScene && mainCamera) {
+				// Cancel any existing animation frame
+				if (animationId) {
+					cancelAnimationFrame(animationId);
+				}
 				animate();
 			} else {
-				console.error(
-					"Critical components not initialized properly (hydrobot missing)"
-				);
+				console.error("Critical components not initialized properly");
 			}
 		}, 0);
-
-		console.log("Three.js initialized successfully");
-		return true;
 	}
 
 	function createPoolWalls() {
@@ -953,13 +753,6 @@ export function usePathFinder(mainCanvas, miniMapCanvas, miniMapFog) {
 		const material = new THREE.MeshPhongMaterial({ color: type.color });
 		const debris = new THREE.Mesh(type.geometry, material);
 
-		// Random position in pool
-		debris.position.set(
-			(Math.random() - 0.5) * (poolSize.value - 4),
-			Math.random() * (-waterDepth.value + 2), // Floating at various depths
-			(Math.random() - 0.5) * (poolSize.value - 4)
-		);
-
 		debris.rotation.set(
 			Math.random() * Math.PI,
 			Math.random() * Math.PI,
@@ -1027,14 +820,6 @@ export function usePathFinder(mainCanvas, miniMapCanvas, miniMapFog) {
 		const victim = new THREE.Mesh(bodyGeometry, bodyMaterial);
 		victim.castShadow = true;
 
-		// Position victims at various depths and locations within bounds
-		const boundary = poolSize.value / 2 - 6; // Keep away from walls
-		victim.position.set(
-			(Math.random() - 0.5) * boundary * 2,
-			-Math.random() * (waterDepth.value - 3) - 1.5, // Keep above bottom
-			(Math.random() - 0.5) * boundary * 2
-		);
-
 		// Add a highly visible heat signature marker above victims
 		const markerGeometry = new THREE.SphereGeometry(0.4);
 		const markerMaterial = new THREE.MeshBasicMaterial({
@@ -1064,42 +849,17 @@ export function usePathFinder(mainCanvas, miniMapCanvas, miniMapFog) {
 	}
 
 	function createUnderwaterEffects() {
-		// Bubble system for visual depth effect
-		bubbleSystem = new THREE.Group();
-
-		for (let i = 0; i < 30; i++) {
-			const bubbleGeometry = new THREE.SphereGeometry(
-				0.1 + Math.random() * 0.1
-			);
-			const bubbleMaterial = new THREE.MeshBasicMaterial({
-				color: 0x88ccff,
-				transparent: true,
-				opacity: 0.6,
-			});
-
-			const bubble = new THREE.Mesh(bubbleGeometry, bubbleMaterial);
-			bubble.position.set(
-				(Math.random() - 0.5) * poolSize.value,
-				-Math.random() * waterDepth.value,
-				(Math.random() - 0.5) * poolSize.value
-			);
-
-			bubble.userData = {
-				velocity: 0.02 + Math.random() * 0.03,
-				drift: (Math.random() - 0.5) * 0.01,
-			};
-
-			bubbleSystem.add(bubble);
-		}
-
-		mainScene.add(bubbleSystem);
+		// Removed bubble system - was causing lag
+		// Simple underwater effect without animations
 	}
 
 	// Thermal scanning for victim detection
 	function performThermalScan() {
+		if (!hydrobot) return false;
+
 		if (heatScanCooldown > 0) {
 			heatScanCooldown--;
-			return;
+			return false;
 		}
 
 		thermalData.heatSources = [];
@@ -1335,19 +1095,26 @@ export function usePathFinder(mainCanvas, miniMapCanvas, miniMapFog) {
 			}
 		});
 
-		return detectionMade;
-	}
+		// Clear previous thermal indicators if they exist
+		if (thermalGroup && thermalGroup.children) {
+			while (thermalGroup.children.length > 0) {
+				thermalGroup.remove(thermalGroup.children[0]);
+			}
+		}
 
-	// Add this to the animation loop to keep text facing camera
-	function updateInfoDisplays() {
-		if (!mainCamera) return;
-
-		victimMeshes.forEach((victim) => {
-			if (victim.userData.detected && victim.userData.infoContainer) {
-				// Make info container always face camera
-				victim.userData.infoContainer.lookAt(mainCamera.position);
+		// Add thermal indicators for detected heat sources
+		thermalData.heatSources.forEach((source) => {
+			if (thermalGroup) {
+				const indicator = new THREE.Mesh(
+					thermalPointGeometry,
+					thermalPointMaterial
+				);
+				indicator.position.copy(source.position);
+				thermalGroup.add(indicator);
 			}
 		});
+
+		return detectionMade;
 	}
 
 	// Enhanced sonar scanning with visual feedback
@@ -1371,26 +1138,33 @@ export function usePathFinder(mainCanvas, miniMapCanvas, miniMapFog) {
 				ping.position.copy(debris.position);
 				ping.rotation.x = -Math.PI / 2;
 
-				// Add expanding effect
-				const animate = () => {
-					const time = Date.now() * 0.01;
-					const scale = 1 + Math.sin(time) * 0.5;
-					ping.scale.setScalar(scale);
-					ping.material.opacity = Math.max(0, 0.8 - (scale - 1) * 2);
-				};
-
 				mainScene.add(ping);
 
 				// Remove after 2 seconds
 				setTimeout(() => {
-					mainScene.remove(ping);
+					if (mainScene) mainScene.remove(ping);
 				}, 2000);
-
-				// Animate for the duration
-				const animationInterval = setInterval(animate, 50);
-				setTimeout(() => clearInterval(animationInterval), 2000);
 			});
 		}
+
+		// Clear previous sonar indicators if they exist
+		if (sonarGroup && sonarGroup.children) {
+			while (sonarGroup.children.length > 0) {
+				sonarGroup.remove(sonarGroup.children[0]);
+			}
+		}
+
+		// Add sonar indicators for detected obstacles
+		sonarData.debris.forEach((obstacle) => {
+			if (sonarGroup) {
+				const indicator = new THREE.Mesh(
+					sonarPointGeometry,
+					debrisPointMaterial
+				);
+				indicator.position.copy(obstacle.position);
+				sonarGroup.add(indicator);
+			}
+		});
 	}
 
 	// Utility functions for pool management
@@ -1442,45 +1216,10 @@ export function usePathFinder(mainCanvas, miniMapCanvas, miniMapFog) {
 		spawnDebris();
 	}
 
-	function resetSimulation() {
-		// Reset robot position to center
-		if (hydrobot) {
-			hydrobot.position.set(0, -1, 0);
-			hydrobot.rotation.set(0, 0, 0);
-		}
-
-		// Clear existing objects
-		debrisMeshes.forEach((d) => mainScene.remove(d));
-		victimMeshes.forEach((v) => mainScene.remove(v));
-		debrisMeshes = [];
-		victimMeshes = [];
-
-		// Reset all states
-		ballastLevel.value = 0;
-		ballastTarget = 0;
-		currentDepth.value = 0;
-		victimsFound.value = 0;
-		areaSearched.value = 0;
-		batteryLevel.value = 100;
-		heatDetected.value = false;
-		missionStatus.value = "MANUAL CONTROL";
-
-		// Rebuild environment
-		setupWaterEnvironment();
-		generateMissionPlan();
-	}
-
-	function resetPatternStates() {
-		// Reset navigation states
-		missionData.currentWaypoint = 0;
-		currentGridIndex = 0;
-		spiralState = null;
-		currentLayer = 0;
-		searchLayerIndex = 0;
-	}
-
 	// Sonar scanning for navigation and debris detection
 	function performSonarScan() {
+		if (!hydrobot) return;
+
 		sonarData.obstacles = [];
 		sonarData.debris = [];
 		sonarData.clearPaths = [];
@@ -1521,22 +1260,30 @@ export function usePathFinder(mainCanvas, miniMapCanvas, miniMapFog) {
 		}
 	}
 
-	// Navigation and movement
+	// Navigation and movement - manual control only
 	function updateMovement() {
 		if (!hydrobot) return; // Safety check
 
-		if (currentMode.value === "manual") {
-			updateManualControl();
-		} else {
-			updateAutomaticNavigation();
-		}
+		// Only manual control now
+		updateManualControl();
 
 		// Update ballast and depth
 		updateBallastSystem();
 
 		// Apply water current
-		hydrobot.position.x += currentFlow.x;
-		hydrobot.position.z += currentFlow.z;
+		hydrobot.position.x += currentFlow.x * 0.1;
+		hydrobot.position.z += currentFlow.z * 0.1;
+
+		// Enforce boundaries after current
+		const boundary = poolSize.value / 2 - 3;
+		hydrobot.position.x = Math.max(
+			-boundary,
+			Math.min(boundary, hydrobot.position.x)
+		);
+		hydrobot.position.z = Math.max(
+			-boundary,
+			Math.min(boundary, hydrobot.position.z)
+		);
 
 		// Update battery (decreases over time)
 		batteryLevel.value = Math.max(0, batteryLevel.value - 0.01);
@@ -1544,9 +1291,15 @@ export function usePathFinder(mainCanvas, miniMapCanvas, miniMapFog) {
 		// Update various timers
 		if (heatScanCooldown > 0) heatScanCooldown--;
 		if (ballastTimer > 0) ballastTimer--;
+
+		// Perform scanning
+		performThermalScanWithVisuals();
+		performSonarScanWithVisuals();
 	}
 
 	function updateManualControl() {
+		if (!hydrobot) return;
+
 		const speed = robotSpeed.value; // Double speed for manual control
 		const rotationSpeed = 0.05; // Faster rotation
 		const boundary = poolSize.value / 2 - 3; // Keep robot 3 units from wall
@@ -1605,320 +1358,9 @@ export function usePathFinder(mainCanvas, miniMapCanvas, miniMapFog) {
 		currentDepth.value = Math.abs(Math.min(0, hydrobot.position.y));
 	}
 
-	function updateAutomaticNavigation() {
-		// Perform scans with visual feedback
-		performThermalScanWithVisuals();
-		performSonarScanWithVisuals();
-
-		// Check for priority targets (survivors)
-		const priorityTarget = thermalData.heatSources.find(
-			(h) => h.type.priority === 1 || h.type.priority === 2
-		);
-
-		// Check for any detected targets if no priority targets
-		const anyTarget = priorityTarget || thermalData.heatSources[0];
-
-		if (anyTarget && !emergencyAscent) {
-			// Navigate directly to the target
-			navigateToTarget(anyTarget.position);
-
-			// Adjust depth to match target
-			const targetDepth = Math.max(
-				-maxDiveDepth.value,
-				Math.min(0, anyTarget.position.y)
-			);
-			ballastTarget = Math.abs(targetDepth) / maxDiveDepth.value;
-
-			missionStatus.value = `APPROACHING: ${
-				anyTarget.type.name
-			} (${anyTarget.distance.toFixed(1)}m)`;
-
-			if (anyTarget.distance < 3) {
-				missionStatus.value = `COLLECTING: ${anyTarget.type.name}`;
-			}
-		} else {
-			// Follow search pattern
-			updateSearchPattern();
-		}
-
-		// Debris avoidance - but don't override target navigation
-		if (sonarData.debris.length > 0 && !anyTarget) {
-			avoidDebris();
-		}
-
-		// Emergency ascent if battery low
-		if (batteryLevel.value < 20 && !emergencyAscent) {
-			emergencySurface();
-		}
-	}
-
-	function updateSearchPattern() {
-		// Reset pattern if robot is stuck or out of bounds
-		const boundary = poolSize.value / 2 - 4;
-		if (
-			Math.abs(hydrobot.position.x) >= boundary ||
-			Math.abs(hydrobot.position.z) >= boundary
-		) {
-			console.log("Robot out of bounds, resetting pattern");
-			resetPatternStates();
-			hydrobot.position.set(0, hydrobot.position.y, 0);
-			return;
-		}
-
-		if (currentPattern.value === "surface-sweep") {
-			updateSurfaceSweep();
-		} else if (currentPattern.value === "spiral-dive") {
-			updateSpiralDive();
-		} else if (currentPattern.value === "depth-layers") {
-			updateDepthLayers();
-		} else if (currentPattern.value === "debris-navigation") {
-			updateDebrisNavigation();
-		} else if (currentPattern.value === "thermal-tracking") {
-			updateThermalTracking();
-		}
-	}
-
-	function updateSurfaceSweep() {
-		// Stay near surface but not exactly at surface to prevent instability
-		ballastTarget = 0.15; // Slightly submerged for stability
-
-		if (missionData.waypoints.length > 0) {
-			const waypoint = missionData.waypoints[missionData.currentWaypoint];
-
-			// Add safety check for waypoint validity
-			const boundary = poolSize.value / 2 - 4;
-			if (
-				Math.abs(waypoint.x) >= boundary ||
-				Math.abs(waypoint.z) >= boundary
-			) {
-				console.log("Invalid waypoint detected, regenerating path");
-				generateMissionPlan();
-				return;
-			}
-
-			navigateToWaypoint(waypoint);
-
-			if (reachedWaypoint(waypoint)) {
-				missionData.currentWaypoint =
-					(missionData.currentWaypoint + 1) %
-					missionData.waypoints.length;
-				areaSearched.value = Math.min(
-					100,
-					(missionData.currentWaypoint /
-						missionData.waypoints.length) *
-						100
-				);
-			}
-		}
-	}
-
-	function updateSpiralDive() {
-		if (missionData.waypoints.length > 0) {
-			const waypoint = missionData.waypoints[missionData.currentWaypoint];
-
-			// Force ballast to match waypoint depth
-			const targetDepth = Math.max(
-				-maxDiveDepth.value,
-				Math.min(0, waypoint.depth)
-			);
-			ballastTarget = Math.abs(targetDepth) / maxDiveDepth.value;
-
-			navigateToWaypoint(waypoint);
-
-			if (reachedWaypoint(waypoint)) {
-				missionData.currentWaypoint =
-					(missionData.currentWaypoint + 1) %
-					missionData.waypoints.length;
-
-				// Update mission status
-				const currentDepthStr = Math.abs(waypoint.depth).toFixed(1);
-				missionStatus.value = `SPIRAL DIVE - DEPTH: ${currentDepthStr}m`;
-			}
-		}
-	}
-
-	function updateDepthLayers() {
-		if (missionData.waypoints.length > 0) {
-			const waypoint = missionData.waypoints[missionData.currentWaypoint];
-
-			// Force ballast to match layer depth
-			const targetDepth = Math.max(
-				-maxDiveDepth.value,
-				Math.min(0, waypoint.depth)
-			);
-			ballastTarget = Math.abs(targetDepth) / maxDiveDepth.value;
-
-			navigateToWaypoint(waypoint);
-
-			if (reachedWaypoint(waypoint)) {
-				missionData.currentWaypoint =
-					(missionData.currentWaypoint + 1) %
-					missionData.waypoints.length;
-
-				// Update mission status based on layer
-				if (waypoint.layer !== undefined) {
-					const currentDepthStr = Math.abs(waypoint.depth).toFixed(1);
-					missionStatus.value = `SEARCHING LAYER ${
-						waypoint.layer + 1
-					}/4 - DEPTH: ${currentDepthStr}m`;
-				}
-			}
-		}
-	}
-
-	function updateDebrisNavigation() {
-		if (missionData.waypoints.length > 0) {
-			const waypoint = missionData.waypoints[missionData.currentWaypoint];
-
-			// Force ballast to match waypoint depth
-			const targetDepth = Math.max(
-				-maxDiveDepth.value,
-				Math.min(0, waypoint.depth)
-			);
-			ballastTarget = Math.abs(targetDepth) / maxDiveDepth.value;
-
-			navigateToWaypoint(waypoint);
-
-			if (reachedWaypoint(waypoint)) {
-				missionData.currentWaypoint =
-					(missionData.currentWaypoint + 1) %
-					missionData.waypoints.length;
-
-				// Update status
-				const currentDepthStr = Math.abs(waypoint.depth).toFixed(1);
-				missionStatus.value = `DEBRIS NAVIGATION - DEPTH: ${currentDepthStr}m`;
-			}
-		}
-	}
-
-	function updateThermalTracking() {
-		if (thermalData.heatSources.length > 0) {
-			// Track the closest heat source
-			const closest = thermalData.heatSources.reduce((prev, curr) =>
-				prev.distance < curr.distance ? prev : curr
-			);
-
-			// Go directly to the closest target
-			navigateToTarget(closest.position);
-
-			// Adjust depth to match target with some offset for better viewing
-			const targetDepth = Math.max(
-				-maxDiveDepth.value,
-				Math.min(0, closest.position.y + 1)
-			);
-			ballastTarget = Math.abs(targetDepth) / maxDiveDepth.value;
-
-			missionStatus.value = `THERMAL TRACKING: ${
-				closest.type.name
-			} (${closest.distance.toFixed(1)}m)`;
-		} else {
-			// No heat sources, continue with systematic search
-			updateSurfaceSweep();
-		}
-	}
-
-	function navigateToTarget(targetPos) {
-		const direction = new THREE.Vector3()
-			.subVectors(targetPos, hydrobot.position)
-			.normalize();
-
-		// Use more controlled speed based on distance
-		const distanceToTarget = hydrobot.position.distanceTo(targetPos);
-		const baseSpeed = robotSpeed.value;
-		const speed = Math.min(baseSpeed, baseSpeed * (distanceToTarget / 10));
-
-		// Apply strict boundary checking
-		const boundary = poolSize.value / 2 - 4; // Increased safety margin
-		const newPos = hydrobot.position.clone();
-
-		// Calculate potential new position
-		const potentialX = newPos.x + direction.x * speed;
-		const potentialZ = newPos.z + direction.z * speed;
-
-		// Apply boundary limits with bounce-back
-		if (Math.abs(potentialX) >= boundary) {
-			// Bounce back from boundary
-			newPos.x = Math.sign(newPos.x) * (boundary - 0.5);
-			// Add slight perpendicular movement to prevent getting stuck
-			newPos.z += (Math.random() - 0.5) * speed;
-		} else {
-			newPos.x = potentialX;
-		}
-
-		if (Math.abs(potentialZ) >= boundary) {
-			// Bounce back from boundary
-			newPos.z = Math.sign(newPos.z) * (boundary - 0.5);
-			// Add slight perpendicular movement to prevent getting stuck
-			newPos.x += (Math.random() - 0.5) * speed;
-		} else {
-			newPos.z = potentialZ;
-		}
-
-		// Ensure we're still within bounds after all adjustments
-		newPos.x = Math.max(-boundary, Math.min(boundary, newPos.x));
-		newPos.z = Math.max(-boundary, Math.min(boundary, newPos.z));
-
-		// Apply the validated position
-		hydrobot.position.copy(newPos);
-
-		// Rotate to face target more smoothly
-		const targetAngle = Math.atan2(direction.x, direction.z);
-		const angleDiff = targetAngle - hydrobot.rotation.y;
-
-		// Normalize angle difference to [-π, π]
-		let normalizedAngleDiff =
-			((angleDiff + Math.PI) % (2 * Math.PI)) - Math.PI;
-
-		// Smoother rotation with speed limit
-		const maxRotationSpeed = 0.1;
-		hydrobot.rotation.y += Math.max(
-			-maxRotationSpeed,
-			Math.min(maxRotationSpeed, normalizedAngleDiff * 0.1)
-		);
-	}
-
-	function navigateToWaypoint(waypoint) {
-		// Ensure waypoint has valid depth
-		const targetPos = new THREE.Vector3(
-			waypoint.x,
-			Math.max(-maxDiveDepth.value, Math.min(0, waypoint.y)),
-			waypoint.z
-		);
-
-		// Force ballast to match waypoint depth
-		ballastTarget = Math.abs(waypoint.depth) / maxDiveDepth.value;
-
-		navigateToTarget(targetPos);
-	}
-
-	function reachedWaypoint(waypoint) {
-		const distance = hydrobot.position.distanceTo(
-			new THREE.Vector3(waypoint.x, waypoint.y, waypoint.z)
-		);
-		return distance < 2;
-	}
-
-	function avoidDebris() {
-		// Find the clearest path
-		if (sonarData.clearPaths.length > 0) {
-			const bestPath = sonarData.clearPaths.reduce((prev, curr) =>
-				prev.distance > curr.distance ? prev : curr
-			);
-
-			const avoidDirection = new THREE.Vector3(
-				Math.sin(bestPath.angle),
-				0,
-				Math.cos(bestPath.angle)
-			);
-
-			hydrobot.position.add(
-				avoidDirection.multiplyScalar(robotSpeed.value * 0.5)
-			);
-			hydrobot.rotation.y = bestPath.angle;
-		}
-	}
-
 	function updateBallastSystem() {
+		if (!hydrobot) return;
+
 		// More controlled ballast adjustment
 		const ballastAdjustmentRate = 0.1;
 		const ballastDiff = ballastTarget - ballastLevel.value;
@@ -1983,12 +1425,22 @@ export function usePathFinder(mainCanvas, miniMapCanvas, miniMapFog) {
 
 	// Get all detected objects with screen positions for overlays
 	function getDetectedObjectsWithScreenPos() {
-		if (!mainCamera || !mainRenderer || !thermalData.heatSources) return [];
+		if (
+			!mainCamera ||
+			!mainRenderer ||
+			!thermalData ||
+			!thermalData.heatSources
+		)
+			return [];
 
 		return thermalData.heatSources
 			.map((source) => {
+				// Create a temporary 3D object for screen position calculation
+				const tempObj = new THREE.Object3D();
+				tempObj.position.copy(source.position);
+
 				const screenPos = getScreenPosition(
-					source.mesh,
+					tempObj,
 					mainCamera,
 					mainRenderer
 				);
@@ -2000,14 +1452,13 @@ export function usePathFinder(mainCanvas, miniMapCanvas, miniMapFog) {
 			})
 			.filter((obj) => obj.isVisible);
 	}
-	// Enhanced detection data with real-time screen positions
-	const detectedObjectsWithOverlays = ref([]);
 
 	// Update overlays in animation loop
 	function updateObjectOverlays() {
 		if (
 			!mainCamera ||
 			!mainRenderer ||
+			!thermalData ||
 			!thermalData.heatSources ||
 			!hydrobot
 		) {
@@ -2044,14 +1495,22 @@ export function usePathFinder(mainCanvas, miniMapCanvas, miniMapFog) {
 
 	// Animation loop
 	function animate() {
-		if (!mainScene || !hydrobot || !mainCamera) return;
+		if (!mainScene || !hydrobot || !mainCamera) {
+			// Try to restart animation if components become available
+			setTimeout(() => {
+				if (mainScene && hydrobot && mainCamera) {
+					animate();
+				}
+			}, 100);
+			return;
+		}
 
 		updateMovement();
 		checkTargetCollection();
 		updateVisionVisualization();
 		updateObjectOverlays(); // Update object overlays
 
-		// Update info displays with enhanced animations
+		// Update info displays without lag-causing animations
 		victimMeshes.forEach((victim) => {
 			if (
 				victim &&
@@ -2062,33 +1521,19 @@ export function usePathFinder(mainCanvas, miniMapCanvas, miniMapFog) {
 				// Make info container face camera
 				victim.userData.infoContainer.lookAt(mainCamera.position);
 
-				// Update info
+				// Update info - removed pulsing animations
 				updateVictimInfo(victim);
-
-				// Apply pulse animation if exists
-				if (victim.userData.pulseAnimation) {
-					victim.userData.pulseAnimation();
-				}
 			}
 		});
 
-		// Update bubble effects
-		if (bubbleSystem) {
-			bubbleSystem.children.forEach((bubble) => {
-				bubble.position.y += bubble.userData.velocity;
-				bubble.position.x += bubble.userData.drift;
-
-				// Reset bubbles that reach surface
-				if (bubble.position.y > 0) {
-					bubble.position.y = -waterDepth.value;
-					bubble.position.x = (Math.random() - 0.5) * poolSize.value;
-					bubble.position.z = (Math.random() - 0.5) * poolSize.value;
-				}
-			});
-		}
+		// Removed bubble effects - were causing lag
 
 		// Update area searched
-		if (missionData.waypoints.length > 0) {
+		if (
+			missionData &&
+			missionData.waypoints &&
+			missionData.waypoints.length > 0
+		) {
 			areaSearched.value = Math.min(
 				100,
 				(missionData.currentWaypoint / missionData.waypoints.length) *
@@ -2203,147 +1648,11 @@ export function usePathFinder(mainCanvas, miniMapCanvas, miniMapFog) {
 		}
 	}
 
-	// Initialize Three.js and scene
-	function initializeThreeJS() {
-		if (!mainCanvas.value || !miniMapCanvas.value || !miniMapFog.value) {
-			console.warn("Canvas elements not ready yet");
-			return false;
-		}
-
-		try {
-			// Get canvas dimensions dynamically
-			const canvasRect = mainCanvas.value.getBoundingClientRect();
-			const canvasWidth = canvasRect.width || 800;
-			const canvasHeight = canvasRect.height || 600;
-
-			mainRenderer = new THREE.WebGLRenderer({
-				canvas: mainCanvas.value,
-				antialias: true,
-				alpha: false,
-			});
-			mainRenderer.setSize(canvasWidth, canvasHeight);
-			mainRenderer.shadowMap.enabled = true;
-			mainRenderer.shadowMap.type = THREE.PCFSoftShadowMap;
-			mainRenderer.setClearColor(0x001122, 1); // Dark blue underwater color
-
-			mainCamera = new THREE.PerspectiveCamera(
-				75,
-				canvasWidth / canvasHeight,
-				0.1,
-				200
-			);
-
-			miniRenderer = new THREE.WebGLRenderer({
-				canvas: miniMapCanvas.value,
-				antialias: true,
-			});
-			miniRenderer.setSize(200, 200);
-			miniRenderer.setClearColor(0x004466, 1);
-
-			miniCamera = new THREE.OrthographicCamera(-30, 30, 30, -30, 1, 100);
-
-			fogCtx = miniMapFog.value.getContext("2d");
-
-			setupWaterEnvironment();
-			generateMissionPlan();
-
-			// Animation loop will be started at the end of setupWaterEnvironment
-			console.log("Three.js initialized successfully");
-			return true;
-		} catch (error) {
-			console.error("Failed to initialize Three.js:", error);
-			return false;
-		}
-	}
-
-	// Initialize on mount - delayed to ensure canvas elements are ready
-	onMounted(() => {
-		// Wait for next tick to ensure DOM elements are rendered
-		setTimeout(() => {
-			if (!initializeThreeJS()) {
-				// Retry after another delay if first attempt fails
-				setTimeout(() => {
-					initializeThreeJS();
-				}, 500);
-			}
-		}, 100);
-	});
-
-	// Return reactive properties and methods
-	return {
-		// Initialization
-		initializeThreeJS,
-
-		// Patterns and modes
-		patterns,
-		currentPattern,
-		modes,
-		currentMode,
-		togglePattern,
-		toggleMode,
-
-		// Environment controls
-		poolSize,
-		waterDepth,
-		waterTurbidity,
-		increasePoolSize,
-		decreasePoolSize,
-		resetSimulation,
-
-		// Robot controls
-		robotSpeed,
-		divingSpeed,
-		ballastLevel,
-		currentDepth,
-		maxDiveDepth,
-		manualControl,
-		emergencyDive,
-		emergencySurface,
-
-		// Robot position access
-		getRobotPosition: () => hydrobot?.position || { x: 0, y: 0, z: 0 },
-
-		// Sensors
-		sonarRadius,
-		sonarNumRays,
-		thermalRadius,
-		thermalData,
-		sonarData,
-
-		// Detection and mission
-		heatDetected,
-		numVictims,
-		numDebris,
-		spawnMoreVictims,
-		spawnMoreDebris,
-		victimsFound,
-		areaSearched,
-		missionStatus,
-
-		// Status
-		batteryLevel,
-		waterTemperature,
-		oxygenLevel,
-
-		// Display
-		cameraMode,
-		toggleCameraMode,
-		texturesEnabled,
-
-		// Vision visualization
-		visionVisualization,
-		toggleVisionVisualization,
-
-		// Iron Man-style object overlays
-		detectedObjectsWithOverlays,
-		getDetectedObjectsWithScreenPos,
-	};
-
 	// Target collection system
 	function checkTargetCollection() {
 		if (!hydrobot) return; // Prevent error if hydrobot is not yet created
 
-		const collectionDistance = 2.0; // Distance needed to collect targets
+		const collectionDistance = 3.5; // Increased distance for easier collection
 		const robotPos = hydrobot.position;
 
 		// Check victim collection
@@ -2370,44 +1679,26 @@ export function usePathFinder(mainCanvas, miniMapCanvas, miniMapFog) {
 	}
 
 	function collectTarget(target, type, index) {
-		// Add collection effect - flash and fade out
-		const originalMaterial = target.material;
+		if (!target || !mainScene) return;
 
-		// Flash effect
-		target.material = new THREE.MeshBasicMaterial({
-			color: 0x00ff00,
-			transparent: true,
-			opacity: 0.8,
-		});
+		// Simple instant collection - no lag-causing animations
+		console.log(
+			`Collecting ${type} at distance: ${hydrobot.position
+				.distanceTo(target.position)
+				.toFixed(2)}m`
+		);
 
-		// Animate collection
-		const startTime = Date.now();
-		const animateCollection = () => {
-			const elapsed = Date.now() - startTime;
-			const progress = elapsed / 1000; // 1 second animation
+		// Remove from scene and arrays immediately
+		mainScene.remove(target);
 
-			if (progress < 1) {
-				// Fade out effect
-				target.material.opacity = 0.8 * (1 - progress);
-				target.scale.setScalar(1 + progress * 2); // Grow effect
-				requestAnimationFrame(animateCollection);
-			} else {
-				// Remove from scene and arrays
-				mainScene.remove(target);
-
-				if (type === "victim") {
-					victimMeshes.splice(index, 1);
-					victimsFound.value++;
-				} else if (type === "debris") {
-					debrisMeshes.splice(index, 1);
-				}
-
-				// Restore original material (though object is removed)
-				target.material = originalMaterial;
-			}
-		};
-
-		animateCollection();
+		if (type === "victim") {
+			victimMeshes.splice(index, 1);
+			victimsFound.value++;
+			missionStatus.value = "VICTIM RESCUED!";
+		} else if (type === "debris") {
+			debrisMeshes.splice(index, 1);
+			missionStatus.value = "DEBRIS CLEARED!";
+		}
 	}
 
 	// Enhanced text sprite creation with better visuals
@@ -2494,6 +1785,8 @@ export function usePathFinder(mainCanvas, miniMapCanvas, miniMapFog) {
 	// Update the info display content with enhanced visuals
 	function updateVictimInfo(victim) {
 		if (
+			!victim ||
+			!victim.userData ||
 			!victim.userData.detected ||
 			!victim.userData.infoContainer ||
 			!hydrobot
@@ -2531,13 +1824,138 @@ export function usePathFinder(mainCanvas, miniMapCanvas, miniMapFog) {
 		const infoSprite = createTextSprite(infoText, type);
 		victim.userData.infoContainer.add(infoSprite);
 
-		// Add pulsing effect for critical victims
-		if (victim.userData.heatType.priority === 1) {
-			victim.userData.pulseAnimation = () => {
-				const time = Date.now() * 0.005;
-				const pulse = 1 + Math.sin(time) * 0.2;
-				victim.scale.setScalar(pulse);
-			};
-		}
+		// Removed pulsing animation - was causing lag
 	}
+
+	// Cleanup on unmount
+	function cleanup() {
+		// Cancel animation frame
+		if (animationId) {
+			cancelAnimationFrame(animationId);
+			animationId = null;
+		}
+
+		// Remove keyboard listeners
+		document.removeEventListener("keydown", handleKeyDown);
+		document.removeEventListener("keyup", handleKeyUp);
+
+		// Clean up Three.js resources
+		if (mainScene) {
+			mainScene.traverse((child) => {
+				if (child.geometry) child.geometry.dispose();
+				if (child.material) {
+					if (Array.isArray(child.material)) {
+						child.material.forEach((mat) => mat.dispose());
+					} else {
+						child.material.dispose();
+					}
+				}
+			});
+		}
+
+		// Dispose renderers
+		if (mainRenderer) {
+			mainRenderer.dispose();
+			mainRenderer = null;
+		}
+		if (miniRenderer) {
+			miniRenderer.dispose();
+			miniRenderer = null;
+		}
+
+		// Clear references
+		mainScene = null;
+		mainCamera = null;
+		miniCamera = null;
+		hydrobot = null;
+		thermalGroup = null;
+		sonarGroup = null;
+	}
+
+	// Initialize on mount - delayed to ensure canvas elements are ready
+	onMounted(() => {
+		// Wait for next tick to ensure DOM elements are rendered
+		setTimeout(() => {
+			if (!initializeThreeJS()) {
+				// Retry after another delay if first attempt fails
+				setTimeout(() => {
+					initializeThreeJS();
+				}, 500);
+			}
+		}, 100);
+
+		// Cleanup on unmount
+		return () => {
+			cleanup();
+		};
+	});
+
+	// Return reactive properties and methods
+	return {
+		// Initialization
+		initializeThreeJS,
+		isInitialized,
+		initializationError,
+
+		// Environment controls
+		poolSize,
+		waterDepth,
+		waterTurbidity,
+		resetSimulation,
+
+		// Robot controls
+		robotSpeed,
+		divingSpeed,
+		ballastLevel,
+		currentDepth,
+		maxDiveDepth,
+		manualControl,
+		emergencyDive,
+		emergencySurface,
+
+		// Robot position access
+		getRobotPosition: () =>
+			hydrobot ? { ...hydrobot.position } : { x: 0, y: 0, z: 0 },
+
+		// Sensors
+		sonarRadius,
+		sonarNumRays,
+		thermalRadius,
+		thermalData,
+		sonarData,
+
+		// Detection and mission
+		heatDetected,
+		numVictims,
+		numDebris,
+		victimsFound,
+		areaSearched,
+		missionStatus,
+
+		// Status
+		batteryLevel,
+		waterTemperature,
+		oxygenLevel,
+
+		// Display
+		cameraMode,
+		toggleCameraMode,
+		texturesEnabled,
+
+		// Iron Man-style object overlays
+		getDetectedObjectsWithScreenPos,
+		detectedObjectsWithOverlays,
+
+		// Manual control functions
+		checkTargetCollection,
+
+		// Utility functions
+		increasePoolSize,
+		decreasePoolSize,
+		spawnMoreVictims,
+		spawnMoreDebris,
+
+		// Vision controls
+		toggleVisionVisualization,
+	};
 }
