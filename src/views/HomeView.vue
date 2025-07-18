@@ -82,6 +82,34 @@
 							</div>
 						</div>
 					</div>
+
+					<div class="search-rescue-display">
+						<div class="sar-header">SEARCH & RESCUE</div>
+						<div class="sar-items">
+							<div class="sar-row">
+								<span class="sar-label">FOUND:</span>
+								<span class="sar-value"
+									>{{ searchProgress.found }}/{{
+										searchProgress.total
+									}}</span
+								>
+							</div>
+							<div class="sar-row" v-if="nearestTarget">
+								<span class="sar-label">NEAREST:</span>
+								<span class="sar-value"
+									>{{ nearestTarget.distance }}m</span
+								>
+							</div>
+							<div class="sar-row">
+								<span class="sar-label">STATUS:</span>
+								<span
+									class="sar-value"
+									:class="searchStatusClass"
+									>{{ searchStatus }}</span
+								>
+							</div>
+						</div>
+					</div>
 				</div>
 
 				<!-- Top Right: Green WiFi Status Icon -->
@@ -234,6 +262,12 @@ const pressure = ref(1.2);
 const sweepAngle = ref(0);
 const compassHeading = ref(0);
 
+// Search and rescue state
+const searchProgress = ref({ found: 0, total: 0 });
+const nearestTarget = ref(null);
+const searchStatus = ref("SEARCHING");
+const searchStatusClass = ref("searching");
+
 // AUV Logic instance
 let auvLogic = null;
 const mainCanvas = ref(null);
@@ -277,6 +311,25 @@ const updateGUIFromAUV = () => {
 		let rotationDegrees = (rotation.z * 180) / Math.PI;
 		// Normalize to 0-360 range and adjust for compass orientation
 		compassHeading.value = (360 - rotationDegrees) % 360;
+
+		// Update search and rescue data
+		searchProgress.value = auvLogic.getSearchProgress();
+		nearestTarget.value = auvLogic.getNearestTarget();
+
+		// Update search status
+		if (
+			searchProgress.value.found === searchProgress.value.total &&
+			searchProgress.value.total > 0
+		) {
+			searchStatus.value = "COMPLETE";
+			searchStatusClass.value = "complete";
+		} else if (searchProgress.value.found > 0) {
+			searchStatus.value = "IN PROGRESS";
+			searchStatusClass.value = "in-progress";
+		} else {
+			searchStatus.value = "SEARCHING";
+			searchStatusClass.value = "searching";
+		}
 	}
 };
 

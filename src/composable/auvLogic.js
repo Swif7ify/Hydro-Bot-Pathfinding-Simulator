@@ -51,6 +51,11 @@ export class AUVLogic {
 			boundary: 100, // Horizontal boundary
 		};
 
+		// Collision detection
+		this.collisionObjects = []; // Array to store objects that can be collided with
+		this.auvBoundingBox = new THREE.Box3(); // AUV bounding box for collision detection
+		this.raycaster = new THREE.Raycaster(); // For raycasting collision detection
+
 		console.log("AUV Logic constructor called");
 		this.init();
 		this.setupEventListeners();
@@ -172,12 +177,12 @@ export class AUVLogic {
 	}
 
 	createUnderwaterEnvironment() {
-		// Create ocean floor
+		// Create ocean floor (more murky for flood scenario)
 		const floorGeometry = new THREE.PlaneGeometry(200, 200);
 		const floorMaterial = new THREE.MeshLambertMaterial({
-			color: 0x3d5a3d,
+			color: 0x2a3a2a, // Darker, murkier color for flood water
 			transparent: true,
-			opacity: 0.8,
+			opacity: 0.9,
 		});
 		const floor = new THREE.Mesh(floorGeometry, floorMaterial);
 		floor.rotation.x = -Math.PI / 2;
@@ -185,60 +190,411 @@ export class AUVLogic {
 		floor.receiveShadow = true;
 		this.scene.add(floor);
 
-		// Add some underwater rocks/debris
-		this.createUnderwaterObjects();
+		// Create flooded urban environment with buildings and debris
+		this.createFloodedCity();
 
-		// Create floating particles (debris/plankton)
+		// Add search and rescue targets (people/survivors)
+		this.createSearchTargets();
+
+		// Create floating debris and particles
+		this.createFloodDebris();
 		this.createFloatingParticles();
+
+		// Hitbox visibility state
+		this.hitboxVisible = false;
+		this.showHitboxes();
 	}
 
-	createUnderwaterObjects() {
-		// Create some rocks on the ocean floor
-		for (let i = 0; i < 20; i++) {
-			const rockGeometry = new THREE.DodecahedronGeometry(
-				Math.random() * 0.5 + 0.2
+	showHitboxes() {
+		if (!this.hitboxHelpers) this.hitboxHelpers = [];
+		// Always remove previous helpers
+		this.hitboxHelpers.forEach((h) => this.scene.remove(h));
+		this.hitboxHelpers = [];
+
+		if (!this.hitboxVisible) return;
+
+		// AUV hitbox
+		if (this.auv) {
+			const auvBox = new THREE.Box3().setFromCenterAndSize(
+				this.auv.position,
+				new THREE.Vector3(2, 1, 3)
 			);
-			const rockMaterial = new THREE.MeshLambertMaterial({
+			const auvHelper = new THREE.Box3Helper(auvBox, 0xff00ff);
+			this.scene.add(auvHelper);
+			this.hitboxHelpers.push(auvHelper);
+		}
+
+		// Collision objects
+		this.collisionObjects.forEach((obj) => {
+			const box = new THREE.Box3().setFromObject(obj);
+			const helper = new THREE.Box3Helper(box, 0x00ff00);
+			this.scene.add(helper);
+			this.hitboxHelpers.push(helper);
+		});
+	}
+
+	toggleHitboxes() {
+		this.hitboxVisible = !this.hitboxVisible;
+		this.showHitboxes();
+	}
+
+	createFloodedCity() {
+		// Create partially submerged buildings
+		this.createSubmergedBuildings();
+
+		// Add cars and vehicles underwater
+		this.createSubmergedVehicles();
+
+		// Create street infrastructure (lamp posts, traffic lights, etc.)
+		this.createStreetInfrastructure();
+
+		// Add natural debris (trees, branches)
+		this.createNaturalDebris();
+	}
+
+	createSubmergedBuildings() {
+		// Create several buildings of different sizes
+		const buildingConfigs = [
+			{ x: 20, z: 15, width: 8, height: 12, depth: 6, color: 0x8b4513 },
+			{ x: -15, z: 25, width: 6, height: 15, depth: 8, color: 0x696969 },
+			{ x: 35, z: -20, width: 10, height: 10, depth: 7, color: 0x8b4513 },
+			{ x: -30, z: -10, width: 5, height: 8, depth: 5, color: 0x708090 },
+			{ x: 0, z: 40, width: 12, height: 18, depth: 10, color: 0x696969 },
+			{ x: -40, z: 15, width: 7, height: 11, depth: 6, color: 0x8b4513 },
+			{ x: 25, z: 35, width: 9, height: 14, depth: 8, color: 0x708090 },
+		];
+
+		buildingConfigs.forEach((config, index) => {
+			// Main building structure
+			const buildingGeometry = new THREE.BoxGeometry(
+				config.width,
+				config.height,
+				config.depth
+			);
+			const buildingMaterial = new THREE.MeshLambertMaterial({
+				color: config.color,
+				transparent: true,
+				opacity: 0.9,
+			});
+			const building = new THREE.Mesh(buildingGeometry, buildingMaterial);
+
+			// Position building so it's partially submerged
+			building.position.set(config.x, -5 + config.height / 2, config.z);
+			building.castShadow = true;
+			building.receiveShadow = true;
+			building.userData = { type: "building", id: index };
+
+			this.scene.add(building);
+			this.collisionObjects.push(building);
+
+			// Add windows to buildings
+			this.addBuildingWindows(building, config);
+
+			// Add building damage effects
+			this.addBuildingDamage(building, config);
+		});
+	}
+
+	addBuildingWindows(building, config) {
+		const windowMaterial = new THREE.MeshBasicMaterial({
+			color: 0x87ceeb,
+			transparent: true,
+			opacity: 0.3,
+		});
+
+		// Front and back windows
+		for (let i = 0; i < 3; i++) {
+			for (let j = 0; j < Math.floor(config.height / 2); j++) {
+				const windowGeometry = new THREE.PlaneGeometry(0.8, 0.8);
+				const window1 = new THREE.Mesh(windowGeometry, windowMaterial);
+				window1.position.set(
+					building.position.x + (i - 1) * 2,
+					building.position.y - config.height / 2 + j * 2 + 1,
+					building.position.z + config.depth / 2 + 0.01
+				);
+				this.scene.add(window1);
+
+				const window2 = new THREE.Mesh(windowGeometry, windowMaterial);
+				window2.position.set(
+					building.position.x + (i - 1) * 2,
+					building.position.y - config.height / 2 + j * 2 + 1,
+					building.position.z - config.depth / 2 - 0.01
+				);
+				window2.rotation.y = Math.PI;
+				this.scene.add(window2);
+			}
+		}
+	}
+
+	addBuildingDamage(building, config) {
+		// Add some broken/damaged parts
+		if (Math.random() > 0.5) {
+			const damageGeometry = new THREE.BoxGeometry(
+				config.width * 0.3,
+				config.height * 0.2,
+				config.depth * 0.1
+			);
+			const damageMaterial = new THREE.MeshLambertMaterial({
+				color: 0x4a4a4a,
+				transparent: true,
+				opacity: 0.7,
+			});
+			const damage = new THREE.Mesh(damageGeometry, damageMaterial);
+			damage.position.set(
+				building.position.x + (Math.random() - 0.5) * config.width,
+				building.position.y + (Math.random() - 0.5) * config.height,
+				building.position.z + config.depth / 2 + 0.5
+			);
+			this.scene.add(damage);
+		}
+	}
+
+	createSubmergedVehicles() {
+		// Create various vehicles scattered around
+		const vehiclePositions = [
+			{ x: 10, z: 5 },
+			{ x: -20, z: 10 },
+			{ x: 30, z: -15 },
+			{ x: -5, z: -25 },
+			{ x: 15, z: 30 },
+			{ x: -35, z: 5 },
+		];
+
+		vehiclePositions.forEach((pos, index) => {
+			// Car body
+			const carBodyGeometry = new THREE.BoxGeometry(4, 1.5, 2);
+			const carBodyMaterial = new THREE.MeshLambertMaterial({
+				color: [
+					0xff0000, 0x0000ff, 0x00ff00, 0xffff00, 0xff00ff, 0x00ffff,
+				][index % 6],
+			});
+			const carBody = new THREE.Mesh(carBodyGeometry, carBodyMaterial);
+			carBody.position.set(pos.x, -8.5, pos.z);
+			carBody.castShadow = true;
+			carBody.userData = { type: "vehicle", id: index };
+			this.scene.add(carBody);
+			this.collisionObjects.push(carBody);
+
+			// Car roof
+			const carRoofGeometry = new THREE.BoxGeometry(3, 1, 1.8);
+			const carRoof = new THREE.Mesh(carRoofGeometry, carBodyMaterial);
+			carRoof.position.set(pos.x, -7.5, pos.z);
+			this.scene.add(carRoof);
+
+			// Wheels (partially buried)
+			const wheelGeometry = new THREE.CylinderGeometry(0.3, 0.3, 0.2);
+			const wheelMaterial = new THREE.MeshLambertMaterial({
+				color: 0x222222,
+			});
+
+			const wheelPositions = [
+				{ x: pos.x - 1.3, z: pos.z - 0.8 },
+				{ x: pos.x + 1.3, z: pos.z - 0.8 },
+				{ x: pos.x - 1.3, z: pos.z + 0.8 },
+				{ x: pos.x + 1.3, z: pos.z + 0.8 },
+			];
+
+			wheelPositions.forEach((wheelPos) => {
+				const wheel = new THREE.Mesh(wheelGeometry, wheelMaterial);
+				wheel.position.set(wheelPos.x, -9, wheelPos.z);
+				wheel.rotation.z = Math.PI / 2;
+				this.scene.add(wheel);
+			});
+		});
+	}
+
+	createStreetInfrastructure() {
+		// Traffic lights
+		for (let i = 0; i < 5; i++) {
+			const poleGeometry = new THREE.CylinderGeometry(0.1, 0.1, 6);
+			const poleMaterial = new THREE.MeshLambertMaterial({
+				color: 0x666666,
+			});
+			const pole = new THREE.Mesh(poleGeometry, poleMaterial);
+			pole.position.set(
+				(Math.random() - 0.5) * 80,
+				-6,
+				(Math.random() - 0.5) * 80
+			);
+			pole.castShadow = true;
+			pole.userData = { type: "infrastructure" };
+			this.scene.add(pole);
+			this.collisionObjects.push(pole);
+
+			// Traffic light box
+			const lightBoxGeometry = new THREE.BoxGeometry(0.3, 0.8, 0.3);
+			const lightBoxMaterial = new THREE.MeshLambertMaterial({
+				color: 0x333333,
+			});
+			const lightBox = new THREE.Mesh(lightBoxGeometry, lightBoxMaterial);
+			lightBox.position.set(pole.position.x, -3, pole.position.z);
+			this.scene.add(lightBox);
+		}
+
+		// Street signs and lamp posts
+		for (let i = 0; i < 8; i++) {
+			const signPoleGeometry = new THREE.CylinderGeometry(0.05, 0.05, 4);
+			const signPoleMaterial = new THREE.MeshLambertMaterial({
+				color: 0x888888,
+			});
+			const signPole = new THREE.Mesh(signPoleGeometry, signPoleMaterial);
+			signPole.position.set(
+				(Math.random() - 0.5) * 100,
+				-7,
+				(Math.random() - 0.5) * 100
+			);
+			signPole.userData = { type: "infrastructure" };
+			this.scene.add(signPole);
+			this.collisionObjects.push(signPole);
+		}
+	}
+
+	createNaturalDebris() {
+		// Tree trunks and large branches
+		for (let i = 0; i < 15; i++) {
+			const trunkGeometry = new THREE.CylinderGeometry(
+				Math.random() * 0.3 + 0.1,
+				Math.random() * 0.4 + 0.2,
+				Math.random() * 3 + 2
+			);
+			const trunkMaterial = new THREE.MeshLambertMaterial({
+				color: 0x8b4513,
+			});
+			const trunk = new THREE.Mesh(trunkGeometry, trunkMaterial);
+
+			trunk.position.set(
+				(Math.random() - 0.5) * 120,
+				-8 + Math.random() * 2,
+				(Math.random() - 0.5) * 120
+			);
+			trunk.rotation.set(
+				((Math.random() - 0.5) * Math.PI) / 2,
+				Math.random() * Math.PI,
+				((Math.random() - 0.5) * Math.PI) / 2
+			);
+			trunk.castShadow = true;
+			trunk.userData = { type: "debris" };
+			this.scene.add(trunk);
+			this.collisionObjects.push(trunk);
+		}
+
+		// Large rocks and concrete debris
+		for (let i = 0; i < 20; i++) {
+			const debrisGeometry = new THREE.DodecahedronGeometry(
+				Math.random() * 1 + 0.5
+			);
+			const debrisMaterial = new THREE.MeshLambertMaterial({
 				color: new THREE.Color().setHSL(
 					0.1,
-					0.3,
-					Math.random() * 0.3 + 0.2
+					0.2,
+					Math.random() * 0.3 + 0.3
 				),
 			});
-			const rock = new THREE.Mesh(rockGeometry, rockMaterial);
+			const debris = new THREE.Mesh(debrisGeometry, debrisMaterial);
 
-			rock.position.set(
+			debris.position.set(
 				(Math.random() - 0.5) * 100,
 				-9 + Math.random() * 2,
 				(Math.random() - 0.5) * 100
 			);
-			rock.rotation.set(
+			debris.rotation.set(
 				Math.random() * Math.PI,
 				Math.random() * Math.PI,
 				Math.random() * Math.PI
 			);
-			rock.castShadow = true;
-			rock.receiveShadow = true;
-			this.scene.add(rock);
+			debris.castShadow = true;
+			debris.receiveShadow = true;
+			debris.userData = { type: "debris" };
+			this.scene.add(debris);
+			this.collisionObjects.push(debris);
 		}
+	}
 
-		// Add some kelp-like structures
-		for (let i = 0; i < 10; i++) {
-			const kelpGeometry = new THREE.CylinderGeometry(0.1, 0.05, 5);
-			const kelpMaterial = new THREE.MeshLambertMaterial({
-				color: 0x2d4a2d,
-				transparent: true,
-				opacity: 0.7,
+	createSearchTargets() {
+		// Create search targets (people/survivors) that the AUV needs to find
+		this.searchTargets = [];
+
+		for (let i = 0; i < 5; i++) {
+			// Simple human figure representation
+			const bodyGeometry = new THREE.CapsuleGeometry(0.3, 1.5);
+			const bodyMaterial = new THREE.MeshLambertMaterial({
+				color: 0xffdbac, // Skin tone
+				emissive: 0x004400, // Slight green glow to make them visible
+				emissiveIntensity: 0.1,
 			});
-			const kelp = new THREE.Mesh(kelpGeometry, kelpMaterial);
+			const person = new THREE.Mesh(bodyGeometry, bodyMaterial);
 
-			kelp.position.set(
+			// Position randomly around buildings or in open areas
+			person.position.set(
 				(Math.random() - 0.5) * 80,
-				-7,
+				-8.5, // On the ground
 				(Math.random() - 0.5) * 80
 			);
-			kelp.rotation.z = (Math.random() - 0.5) * 0.3;
-			this.scene.add(kelp);
+
+			person.userData = {
+				type: "survivor",
+				id: i,
+				found: false,
+				blinkTimer: 0,
+			};
+
+			this.scene.add(person);
+			this.searchTargets.push(person);
+
+			// Add a small beacon light to make them easier to spot
+			const beaconGeometry = new THREE.SphereGeometry(0.1);
+			const beaconMaterial = new THREE.MeshBasicMaterial({
+				color: 0xff0000,
+				transparent: true,
+				opacity: 0.8,
+			});
+			const beacon = new THREE.Mesh(beaconGeometry, beaconMaterial);
+			beacon.position.set(
+				person.position.x,
+				person.position.y + 1,
+				person.position.z
+			);
+			this.scene.add(beacon);
+			person.userData.beacon = beacon;
+		}
+	}
+
+	createFloodDebris() {
+		// Floating debris at various depths
+		const debrisTypes = [
+			{ geometry: new THREE.BoxGeometry(1, 0.2, 0.5), color: 0x8b4513 }, // Wood planks
+			{ geometry: new THREE.SphereGeometry(0.3), color: 0x333333 }, // Balls/barrels
+			{
+				geometry: new THREE.CylinderGeometry(0.2, 0.2, 1),
+				color: 0x888888,
+			}, // Pipes
+		];
+
+		for (let i = 0; i < 30; i++) {
+			const debrisType =
+				debrisTypes[Math.floor(Math.random() * debrisTypes.length)];
+			const debrisMaterial = new THREE.MeshLambertMaterial({
+				color: debrisType.color,
+				transparent: true,
+				opacity: 0.8,
+			});
+			const debris = new THREE.Mesh(debrisType.geometry, debrisMaterial);
+
+			debris.position.set(
+				(Math.random() - 0.5) * 100,
+				Math.random() * 10 - 5, // Floating at various depths
+				(Math.random() - 0.5) * 100
+			);
+			debris.rotation.set(
+				Math.random() * Math.PI,
+				Math.random() * Math.PI,
+				Math.random() * Math.PI
+			);
+			debris.userData = {
+				type: "floating_debris",
+				floatSpeed: (Math.random() - 0.5) * 0.01,
+			};
+			this.scene.add(debris);
 		}
 	}
 
@@ -430,6 +786,9 @@ export class AUVLogic {
 			case "KeyC":
 				this.toggleFreeCam();
 				break;
+			case "KeyV":
+				this.toggleHitboxes();
+				break;
 		}
 	}
 
@@ -605,11 +964,35 @@ export class AUVLogic {
 			direction.add(up.multiplyScalar(-this.speed));
 		}
 
-		// Apply movement
-		this.auv.position.add(direction);
+		// Apply movement with collision detection
+		const newPosition = this.auv.position.clone().add(direction);
+
+		// Check for collisions before moving
+		if (this.checkCollision(newPosition)) {
+			// Collision detected, try to slide along the surface
+			const slideDirection = this.calculateSlideDirection(
+				direction,
+				newPosition
+			);
+			if (
+				slideDirection &&
+				!this.checkCollision(
+					this.auv.position.clone().add(slideDirection)
+				)
+			) {
+				this.auv.position.add(slideDirection);
+			}
+			// If sliding also fails, don't move
+		} else {
+			// No collision, safe to move
+			this.auv.position.copy(newPosition);
+		}
 
 		// Keep AUV above the ocean floor
 		this.auv.position.y = Math.max(this.auv.position.y, -8);
+
+		// Check for search target proximity
+		this.checkSearchTargets();
 
 		// Update navigation data
 		this.updateNavigationData();
@@ -745,10 +1128,125 @@ export class AUVLogic {
 
 		this.updateMovement();
 		this.animateParticles();
+		this.animateFloatingDebris();
 
 		if (this.renderer && this.scene && this.camera) {
 			this.renderer.render(this.scene, this.camera);
 		}
+	}
+
+	// Collision detection methods
+	checkCollision(newPosition) {
+		if (!this.auv) return false;
+
+		// Update AUV bounding box at the new position
+		this.auvBoundingBox.setFromCenterAndSize(
+			newPosition,
+			new THREE.Vector3(2, 1, 3) // AUV dimensions (width, height, length)
+		);
+
+		// Check collision with all collidable objects
+		for (let obj of this.collisionObjects) {
+			const objBoundingBox = new THREE.Box3().setFromObject(obj);
+			if (this.auvBoundingBox.intersectsBox(objBoundingBox)) {
+				return true; // Collision detected
+			}
+		}
+
+		return false;
+	}
+
+	calculateSlideDirection(originalDirection, blockedPosition) {
+		// Try sliding along different axes
+		const slideDirections = [
+			new THREE.Vector3(originalDirection.x, 0, 0), // Slide along X
+			new THREE.Vector3(0, 0, originalDirection.z), // Slide along Z
+			new THREE.Vector3(0, originalDirection.y, 0), // Slide along Y
+		];
+
+		for (let slideDir of slideDirections) {
+			if (slideDir.length() > 0.001) {
+				// Avoid zero-length vectors
+				slideDir
+					.normalize()
+					.multiplyScalar(originalDirection.length() * 0.5);
+				const testPosition = this.auv.position.clone().add(slideDir);
+				if (!this.checkCollision(testPosition)) {
+					return slideDir;
+				}
+			}
+		}
+
+		return null; // No valid slide direction found
+	}
+
+	checkSearchTargets() {
+		if (!this.auv || !this.searchTargets) return;
+
+		const auvPosition = this.auv.position;
+
+		this.searchTargets.forEach((target) => {
+			if (!target.userData.found) {
+				const distance = auvPosition.distanceTo(target.position);
+
+				// If AUV is close enough to a survivor
+				if (distance < 3) {
+					target.userData.found = true;
+
+					// Change the material to indicate found
+					target.material.color.setHex(0x00ff00); // Green color
+					target.material.emissive.setHex(0x004400);
+					target.material.emissiveIntensity = 0.3;
+
+					// Make beacon blink faster
+					if (target.userData.beacon) {
+						target.userData.beacon.material.color.setHex(0x00ff00);
+					}
+
+					console.log(`Survivor ${target.userData.id} found!`);
+
+					// Play a sound effect or trigger GUI notification here
+					this.onSurvivorFound(target.userData.id);
+				}
+			}
+
+			// Animate beacon blinking
+			if (target.userData.beacon) {
+				target.userData.blinkTimer += 0.1;
+				const opacity =
+					0.5 + Math.sin(target.userData.blinkTimer * 3) * 0.5;
+				target.userData.beacon.material.opacity = opacity;
+			}
+		});
+	}
+
+	onSurvivorFound(survivorId) {
+		// This method can be expanded to trigger GUI updates, sounds, etc.
+		// For now, just log the event
+		const foundCount = this.searchTargets.filter(
+			(t) => t.userData.found
+		).length;
+		console.log(
+			`Search progress: ${foundCount}/${this.searchTargets.length} survivors found`
+		);
+	}
+
+	animateFloatingDebris() {
+		// Animate floating debris
+		this.scene.children.forEach((child) => {
+			if (child.userData && child.userData.type === "floating_debris") {
+				// Make debris float up and down
+				child.position.y += child.userData.floatSpeed;
+
+				// Reverse direction if too high or low
+				if (child.position.y > 2 || child.position.y < -7) {
+					child.userData.floatSpeed *= -1;
+				}
+
+				// Slowly rotate
+				child.rotation.y += 0.005;
+			}
+		});
 	}
 
 	// Public methods for GUI integration
@@ -770,5 +1268,34 @@ export class AUVLogic {
 
 	getHeading() {
 		return this.currentHeading; // Return compass heading in degrees
+	}
+
+	getSearchProgress() {
+		if (!this.searchTargets) return { found: 0, total: 0 };
+		const found = this.searchTargets.filter((t) => t.userData.found).length;
+		return { found, total: this.searchTargets.length };
+	}
+
+	getNearestTarget() {
+		if (!this.auv || !this.searchTargets) return null;
+
+		let nearest = null;
+		let minDistance = Infinity;
+
+		this.searchTargets.forEach((target) => {
+			if (!target.userData.found) {
+				const distance = this.auv.position.distanceTo(target.position);
+				if (distance < minDistance) {
+					minDistance = distance;
+					nearest = {
+						id: target.userData.id,
+						distance: distance.toFixed(1),
+						position: target.position,
+					};
+				}
+			}
+		});
+
+		return nearest;
 	}
 }

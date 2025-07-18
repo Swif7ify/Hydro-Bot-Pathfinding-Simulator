@@ -206,6 +206,72 @@
 	font-family: "Courier New", monospace;
 }
 
+/* Search and Rescue Display */
+.search-rescue-display {
+	background: rgba(0, 0, 0, 0.8);
+	border: 2px solid #ff6b35;
+	border-radius: 8px;
+	padding: 15px;
+	margin-top: 15px;
+	backdrop-filter: blur(10px);
+}
+
+.sar-header {
+	color: #ff6b35;
+	font-size: 12px;
+	font-weight: bold;
+	text-align: center;
+	margin-bottom: 15px;
+	padding-bottom: 8px;
+	border-bottom: 1px solid #ff6b35;
+}
+
+.sar-items {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+}
+
+.sar-row {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	font-size: 11px;
+}
+
+.sar-label {
+	color: #ff6b35;
+	font-weight: bold;
+	flex: 1;
+}
+
+.sar-value {
+	font-family: "Courier New", monospace;
+}
+
+.sar-value.searching {
+	color: #ffaa00;
+}
+
+.sar-value.in-progress {
+	color: #00aaff;
+}
+
+.sar-value.complete {
+	color: #00ff88;
+	animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+	0%,
+	100% {
+		opacity: 1;
+	}
+	50% {
+		opacity: 0.7;
+	}
+}
+
 .coordinates-display {
 	display: flex;
 	flex-direction: column;
