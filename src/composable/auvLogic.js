@@ -215,10 +215,8 @@ export class AUVLogic {
 
 		// AUV hitbox
 		if (this.auv) {
-			const auvBox = new THREE.Box3().setFromCenterAndSize(
-				this.auv.position,
-				new THREE.Vector3(2, 1, 3)
-			);
+			// Compute the bounding box of the AUV model
+			const auvBox = new THREE.Box3().setFromObject(this.auv);
 			const auvHelper = new THREE.Box3Helper(auvBox, 0xff00ff);
 			this.scene.add(auvHelper);
 			this.hitboxHelpers.push(auvHelper);
@@ -236,6 +234,20 @@ export class AUVLogic {
 	toggleHitboxes() {
 		this.hitboxVisible = !this.hitboxVisible;
 		this.showHitboxes();
+	}
+
+	updateHitboxes() {
+		if (!this.hitboxVisible || !this.hitboxHelpers || !this.auv) return;
+
+		// Update AUV hitbox position (first helper in the array is always the AUV)
+		if (this.hitboxHelpers.length > 0) {
+			const auvHelper = this.hitboxHelpers[0];
+			if (auvHelper) {
+				// Update the AUV bounding box position
+				const auvBox = new THREE.Box3().setFromObject(this.auv);
+				auvHelper.box.copy(auvBox);
+			}
+		}
 	}
 
 	createFloodedCity() {
@@ -1129,6 +1141,7 @@ export class AUVLogic {
 		this.updateMovement();
 		this.animateParticles();
 		this.animateFloatingDebris();
+		this.updateHitboxes(); // Update hitbox positions
 
 		if (this.renderer && this.scene && this.camera) {
 			this.renderer.render(this.scene, this.camera);
@@ -1142,7 +1155,7 @@ export class AUVLogic {
 		// Update AUV bounding box at the new position
 		this.auvBoundingBox.setFromCenterAndSize(
 			newPosition,
-			new THREE.Vector3(2, 1, 3) // AUV dimensions (width, height, length)
+			new THREE.Vector3(2, 4, 10) // AUV dimensions (width, height, length)
 		);
 
 		// Check collision with all collidable objects
