@@ -141,7 +141,15 @@
 								}"
 							></div>
 						</div>
-						<div class="gauge-needle"></div>
+						<div
+							class="gauge-needle"
+							:style="{
+								transform:
+									'rotate(' +
+									(Math.min(robotSpeed * 20, 240) - 90) +
+									'deg)',
+							}"
+						></div>
 					</div>
 					<div class="gauge-label">{{ robotSpeed.toFixed(1) }}</div>
 					<div class="gauge-unit">KNOTS</div>
@@ -193,18 +201,15 @@
 							<!-- Compass needle -->
 							<div
 								class="compass-needle"
-								:style="{ transform: 'rotate(45deg)' }"
+								:style="{
+									transform:
+										'rotate(' + compassHeading + 'deg)',
+								}"
 							>
 								<div class="needle-north"></div>
 								<div class="needle-south"></div>
 							</div>
-
-							<!-- Center dot -->
-							<div class="compass-center"></div>
 						</div>
-					</div>
-					<div class="compass-heading">
-						<span class="heading-value">045°</span>
 					</div>
 				</div>
 				<div class="compass-title">COMPASS</div>
@@ -223,10 +228,11 @@ const latitude = ref("0.000000");
 const longitude = ref("0.000000");
 const currentDepth = ref("0.0");
 const batteryLevel = ref(85);
-const robotSpeed = ref(1.2);
+const robotSpeed = ref(0.0);
 const waterTemperature = ref(24);
 const pressure = ref(1.2);
 const sweepAngle = ref(0);
+const compassHeading = ref(0);
 
 // AUV Logic instance
 let auvLogic = null;
@@ -253,6 +259,8 @@ const updateGUIFromAUV = () => {
 		const position = auvLogic.getPosition();
 		const speed = auvLogic.getSpeed();
 		const depth = auvLogic.getDepth();
+		const heading = auvLogic.getHeading();
+		const rotation = auvLogic.getRotation();
 
 		// Update position (convert to lat/lng format)
 		latitude.value = (position.x * 0.00001).toFixed(6);
@@ -263,6 +271,12 @@ const updateGUIFromAUV = () => {
 
 		// Update speed
 		robotSpeed.value = speed;
+
+		// Update compass heading using raw rotation to avoid interpolation issues
+		// Convert Z rotation to compass heading (0° = North, 90° = East, etc.)
+		let rotationDegrees = (rotation.z * 180) / Math.PI;
+		// Normalize to 0-360 range and adjust for compass orientation
+		compassHeading.value = (360 - rotationDegrees) % 360;
 	}
 };
 

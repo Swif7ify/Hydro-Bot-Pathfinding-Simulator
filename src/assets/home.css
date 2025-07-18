@@ -497,7 +497,7 @@
 	width: 2px;
 	height: 10px;
 	background: #4a9bc2;
-	transform-origin: 50% 400%;
+	transform-origin: 50% 570%;
 }
 
 .gauge-needle {
@@ -511,6 +511,10 @@
 	transform: translate(-50%, -100%) rotate(-45deg);
 	border-radius: 2px;
 	transition: transform 0.5s ease;
+}
+
+.gauge-needle:nth-of-type(2) {
+	top: 30% !important;
 }
 
 .gauge-label {
@@ -667,20 +671,20 @@
 
 .compass-needle {
 	position: absolute;
-	top: 50%;
+	top: 25%;
 	left: 50%;
 	width: 2px;
 	height: 60px;
-	transform-origin: 50% 50%;
-	transform: translate(-50%, -50%) rotate(45deg);
+	transform: translate(-50%, -50%);
 	transition: transform 0.5s ease;
+	z-index: 100;
 }
 
 .needle-north {
 	position: absolute;
-	top: -20px;
-	left: -20px;
-	width: 2px;
+	top: 0;
+	left: -1px;
+	width: 4px;
 	height: 30px;
 	background: #ff4444;
 	clip-path: polygon(50% 0%, 0% 100%, 100% 100%);
@@ -688,24 +692,12 @@
 
 .needle-south {
 	position: absolute;
-	bottom: 20px;
-	left: -20px;
-	width: 2px;
+	bottom: 0;
+	left: -1px;
+	width: 4px;
 	height: 30px;
 	background: #888;
 	clip-path: polygon(0% 0%, 100% 0%, 50% 100%);
-}
-
-.compass-center {
-	position: absolute;
-	top: 50%;
-	left: 50%;
-	transform: translate(-50%, -50%);
-	width: 8px;
-	height: 8px;
-	background: #00ff88;
-	border-radius: 50%;
-	box-shadow: 0 0 10px rgba(0, 255, 136, 0.8);
 }
 
 .compass-heading {

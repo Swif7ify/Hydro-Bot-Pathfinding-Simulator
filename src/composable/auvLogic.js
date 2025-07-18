@@ -15,6 +15,14 @@ export class AUVLogic {
 		this.speed = 0.1;
 		this.rotationSpeed = 0.02;
 
+		// Navigation tracking
+		this.currentHeading = 0; // Compass heading in degrees (0-360)
+		this.currentSpeed = 0; // Speed in knots
+		this.lastPosition = new THREE.Vector3(0, 0, 0);
+		this.lastUpdateTime = Date.now();
+		this.speedSamples = []; // For speed smoothing
+		this.maxSpeedSamples = 10;
+
 		// Camera control
 		this.isFreeCam = false;
 		this.cameraSpeed = 0.2;
@@ -603,6 +611,9 @@ export class AUVLogic {
 		// Keep AUV above the ocean floor
 		this.auv.position.y = Math.max(this.auv.position.y, -8);
 
+		// Update navigation data
+		this.updateNavigationData();
+
 		// Update camera position for first-person view
 		this.updateCameraPosition();
 
@@ -652,6 +663,58 @@ export class AUVLogic {
 		this.rightHeadlight.target.position.copy(targetPos);
 	}
 
+	updateNavigationData() {
+		if (!this.auv) return;
+
+		// Calculate heading from AUV rotation (Z-axis rotation converted to compass degrees)
+		// Convert radians to degrees and normalize to 0-360
+		let headingRad = this.auv.rotation.z;
+		let newHeading = ((headingRad * 180) / Math.PI + 360) % 360;
+
+		// Smooth heading changes to prevent jumps
+		const headingDiff = newHeading - this.currentHeading;
+		if (Math.abs(headingDiff) > 180) {
+			// Handle wrap-around case (e.g., 359° to 1°)
+			if (headingDiff > 0) {
+				newHeading -= 360;
+			} else {
+				newHeading += 360;
+			}
+		}
+
+		// Interpolate for smoother heading changes
+		this.currentHeading += (newHeading - this.currentHeading) * 0.1;
+
+		// Normalize to 0-360 range
+		if (this.currentHeading < 0) this.currentHeading += 360;
+		if (this.currentHeading >= 360) this.currentHeading -= 360;
+
+		// Calculate speed based on position change with smoothing
+		const currentTime = Date.now();
+		const deltaTime = (currentTime - this.lastUpdateTime) / 1000; // Convert to seconds
+
+		if (deltaTime > 0.02) {
+			// Only update every 20ms to reduce jitter
+			const distance = this.auv.position.distanceTo(this.lastPosition);
+			// Convert to knots with better scaling
+			const instantSpeed = Math.min((distance / deltaTime) * 5, 10); // Cap at 10 knots
+
+			// Add to speed samples for smoothing
+			this.speedSamples.push(instantSpeed);
+			if (this.speedSamples.length > this.maxSpeedSamples) {
+				this.speedSamples.shift();
+			}
+
+			// Calculate average speed for smoothing
+			this.currentSpeed =
+				this.speedSamples.reduce((a, b) => a + b, 0) /
+				this.speedSamples.length;
+
+			this.lastPosition.copy(this.auv.position);
+			this.lastUpdateTime = currentTime;
+		}
+	}
+
 	animateParticles() {
 		if (this.particles) {
 			// Slowly rotate particles to simulate water movement
@@ -698,10 +761,14 @@ export class AUVLogic {
 	}
 
 	getSpeed() {
-		return this.velocity.length() * 10; // Convert to a reasonable speed unit
+		return this.currentSpeed; // Return calculated speed in knots
 	}
 
 	getDepth() {
 		return this.auv ? Math.abs(this.auv.position.y) : 0;
+	}
+
+	getHeading() {
+		return this.currentHeading; // Return compass heading in degrees
 	}
 }
