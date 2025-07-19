@@ -33,6 +33,36 @@ export class AUVLogic {
 		this.cameraMode = "optical";
 		this.sonarRenderer = null;
 
+		// Sonar system
+		this.sonarSystem = {
+			sweepAngle: 0,
+			sweepSpeed: 0.05, // Radians per frame
+			detectedObjects: [],
+			scanRadius: 50,
+			fadeTime: 8000, // How long detections stay visible (ms)
+			canvas: null,
+			ctx: null,
+			isActive: false,
+
+			// Sonar pulse system
+			pulses: [], // Active sonar pulses
+			pulseSpeed: 0.5, // Slower sonar pulse travel (meters per frame)
+			pulseInterval: 1200, // Slower pulse rate (milliseconds between pulses)
+			lastPulseTime: 0,
+			maxPulseRange: 50,
+
+			// Sonar image data
+			sonarData: new Map(), // Stores sonar returns by angle and distance
+			imageResolution: 360, // Angular resolution (degrees)
+			rangeResolution: 100, // Distance resolution (meters)
+
+			// Visual settings
+			backgroundColor: 0x000811,
+			pulseColor: "#00ff88",
+			returnColor: "#88ff00",
+			oldReturnColor: "#446622",
+		};
+
 		// Input state
 		this.keys = {
 			forward: false,
@@ -109,11 +139,9 @@ export class AUVLogic {
 		this.renderer = new THREE.WebGLRenderer({
 			canvas: this.canvas,
 			antialias: true,
-			alpha: false,
 		});
 		this.renderer.setSize(width, height);
 		this.renderer.setPixelRatio(window.devicePixelRatio);
-		this.renderer.setClearColor(0x004466, 1.0);
 		this.renderer.shadowMap.enabled = true;
 		this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
@@ -123,6 +151,9 @@ export class AUVLogic {
 		this.canvas.style.display = "block";
 
 		console.log("Renderer created");
+
+		// Initialize sonar system
+		this.initializeSonarSystem();
 
 		// Setup lighting for underwater environment
 		this.setupLighting();
@@ -900,12 +931,469 @@ export class AUVLogic {
 		console.log(
 			`Camera mode switched to: ${this.cameraMode.toUpperCase()}`
 		);
+
+		// Activate/deactivate sonar system
+		this.sonarSystem.isActive = this.cameraMode === "sonar";
+		if (this.sonarSystem.isActive) {
+			this.sonarSystem.detectedObjects = []; // Clear previous detections
+		}
+
 		this.applyCameraEffects();
+	}
+
+	initializeSonarSystem() {
+		// Create sonar overlay canvas
+		this.sonarSystem.canvas = document.createElement("canvas");
+		this.sonarSystem.canvas.style.position = "absolute";
+		this.sonarSystem.canvas.style.top = "0";
+		this.sonarSystem.canvas.style.left = "0";
+		this.sonarSystem.canvas.style.width = "100%";
+		this.sonarSystem.canvas.style.height = "100%";
+		this.sonarSystem.canvas.style.pointerEvents = "none";
+		this.sonarSystem.canvas.style.zIndex = "10";
+		this.sonarSystem.canvas.style.display = "none";
+
+		// Get canvas context
+		this.sonarSystem.ctx = this.sonarSystem.canvas.getContext("2d");
+
+		// Add to DOM
+		this.canvas.parentElement.appendChild(this.sonarSystem.canvas);
+
+		// Set canvas size
+		this.updateSonarCanvasSize();
+	}
+
+	updateSonarCanvasSize() {
+		if (!this.sonarSystem.canvas) return;
+
+		const rect = this.canvas.getBoundingClientRect();
+		this.sonarSystem.canvas.width = rect.width;
+		this.sonarSystem.canvas.height = rect.height;
+	}
+
+	updateSonarScan() {
+		if (!this.sonarSystem.isActive || !this.auv) return;
+
+		const currentTime = Date.now();
+
+		// Fire new sonar pulses at intervals
+		if (
+			currentTime - this.sonarSystem.lastPulseTime >=
+			this.sonarSystem.pulseInterval
+		) {
+			this.fireSonarPulse();
+			this.sonarSystem.lastPulseTime = currentTime;
+		}
+
+		// Update existing pulses
+		this.updateSonarPulses();
+
+		// Clean up old sonar data
+		this.cleanupOldSonarData(currentTime);
+
+		// Render sonar display
+		this.renderSonarDisplay();
+	}
+
+	fireSonarPulse() {
+		if (!this.auv) return;
+
+		// Create new sonar pulse
+		const pulse = {
+			position: this.auv.position.clone(),
+			radius: 0,
+			timestamp: Date.now(),
+			direction: this.auv.rotation.y, // Current AUV heading
+			id: Math.random(),
+		};
+
+		this.sonarSystem.pulses.push(pulse);
+		console.log(
+			`Fired sonar pulse from position:`,
+			pulse.position,
+			`Total collision objects: ${this.collisionObjects.length}`
+		);
+
+		// Limit number of active pulses
+		if (this.sonarSystem.pulses.length > 5) {
+			this.sonarSystem.pulses.shift();
+		}
+	}
+
+	updateSonarPulses() {
+		this.sonarSystem.pulses = this.sonarSystem.pulses.filter((pulse) => {
+			// Expand pulse radius
+			pulse.radius += this.sonarSystem.pulseSpeed;
+
+			// Check for collisions with objects as pulse expands
+			this.checkPulseCollisions(pulse);
+
+			// Remove pulse if it's beyond max range
+			return pulse.radius <= this.sonarSystem.maxPulseRange;
+		});
+	}
+
+	checkPulseCollisions(pulse) {
+		if (!this.auv) return;
+
+		// Cast rays in all directions from pulse center
+		const rayCount = 36; // 10-degree intervals (reduced for better performance)
+		const angleStep = (Math.PI * 2) / rayCount;
+
+		for (let i = 0; i < rayCount; i++) {
+			const angle = i * angleStep;
+
+			// Calculate ray direction relative to AUV's rotation
+			const rayDirection = new THREE.Vector3(
+				Math.cos(angle),
+				0,
+				Math.sin(angle)
+			);
+
+			// Apply AUV's rotation to the ray direction
+			rayDirection.applyQuaternion(this.auv.quaternion);
+
+			// Cast ray from pulse center
+			this.raycaster.set(pulse.position, rayDirection);
+
+			// Check intersections
+			const intersections = this.raycaster.intersectObjects(
+				this.collisionObjects,
+				true
+			);
+
+			if (intersections.length > 0) {
+				const hit = intersections[0];
+				const distance = hit.distance;
+
+				// Record hits that are within a reasonable range of the pulse
+				const pulseEdge = pulse.radius;
+				const hitTolerance = 3.0; // Increased tolerance
+
+				if (
+					distance >= pulseEdge - hitTolerance &&
+					distance <= pulseEdge + hitTolerance &&
+					distance <= this.sonarSystem.maxPulseRange
+				) {
+					// Store the angle relative to AUV's heading for proper display
+					const auvRelativeAngle = angle;
+					this.recordSonarReturn(
+						auvRelativeAngle,
+						distance,
+						hit.object,
+						pulse.timestamp
+					);
+				}
+			}
+		}
+	}
+
+	recordSonarReturn(angle, distance, object, timestamp) {
+		// Convert angle to degrees for storage
+		const angleDeg = ((angle * 180) / Math.PI + 360) % 360;
+		const angleKey = Math.round(
+			angleDeg / (360 / this.sonarSystem.imageResolution)
+		);
+		const distanceKey = Math.round(distance);
+
+		const key = `${angleKey}_${distanceKey}`;
+
+		// Store sonar return data
+		const returnData = {
+			angle: angleDeg,
+			distance: distance,
+			timestamp: timestamp,
+			object: object,
+			intensity: this.calculateReturnIntensity(object, distance),
+			type: object.userData?.type || "unknown",
+		};
+
+		this.sonarSystem.sonarData.set(key, returnData);
+		console.log(
+			`Sonar return recorded: ${returnData.type} at ${distance.toFixed(
+				1
+			)}m, angle ${angleDeg.toFixed(0)}°`
+		);
+	}
+
+	calculateReturnIntensity(object, distance) {
+		// Calculate intensity based on object type and distance
+		let baseIntensity = 1.0;
+
+		switch (object.userData?.type) {
+			case "building":
+				baseIntensity = 0.9;
+				break;
+			case "vehicle":
+				baseIntensity = 0.7;
+				break;
+			case "debris":
+				baseIntensity = 0.5;
+				break;
+			case "survivor":
+				baseIntensity = 0.3;
+				break;
+			default:
+				baseIntensity = 0.6;
+		}
+
+		// Reduce intensity with distance
+		const distanceFactor = Math.max(
+			0.1,
+			1 - distance / this.sonarSystem.maxPulseRange
+		);
+
+		return baseIntensity * distanceFactor;
+	}
+
+	cleanupOldSonarData(currentTime) {
+		// Remove sonar data older than fade time
+		for (const [key, data] of this.sonarSystem.sonarData.entries()) {
+			if (currentTime - data.timestamp > this.sonarSystem.fadeTime) {
+				this.sonarSystem.sonarData.delete(key);
+			}
+		}
+	}
+
+	renderSonarDisplay() {
+		if (!this.sonarSystem.ctx || !this.sonarSystem.isActive) return;
+
+		const ctx = this.sonarSystem.ctx;
+		const canvas = this.sonarSystem.canvas;
+
+		// Set sonar background
+		ctx.fillStyle = "#000811";
+		ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+		// Calculate center and scale for polar display
+		const centerX = canvas.width / 2;
+		const centerY = canvas.height / 2;
+		const maxRadius = Math.min(centerX, centerY) * 0.8;
+		const scale = maxRadius / this.sonarSystem.maxPulseRange;
+
+		// Draw active sonar pulses
+		this.drawSonarPulses(ctx, centerX, centerY, scale);
+
+		// Draw sonar returns (the accumulated data)
+		this.drawSonarReturns(ctx, centerX, centerY, scale);
+
+		// Draw sonar grid
+		this.drawSonarGrid(ctx, centerX, centerY, maxRadius);
+
+		// Draw sonar info
+		this.drawSonarInfo(ctx, canvas);
+	}
+
+	drawSonarPulses(ctx, centerX, centerY, scale) {
+		ctx.save();
+
+		this.sonarSystem.pulses.forEach((pulse) => {
+			const pulseRadius = pulse.radius * scale;
+
+			// Only draw if pulse is visible
+			if (pulseRadius < 1) return;
+
+			// Draw expanding pulse ring
+			ctx.strokeStyle = this.sonarSystem.pulseColor;
+			ctx.lineWidth = 2;
+			ctx.globalAlpha = 0.8;
+
+			ctx.beginPath();
+			ctx.arc(centerX, centerY, pulseRadius, 0, Math.PI * 2);
+			ctx.stroke();
+
+			// Draw pulse fade effect (only if radius is large enough)
+			if (pulseRadius > 10) {
+				const innerRadius = Math.max(0, pulseRadius - 5);
+				const outerRadius = pulseRadius + 5;
+
+				const gradient = ctx.createRadialGradient(
+					centerX,
+					centerY,
+					innerRadius,
+					centerX,
+					centerY,
+					outerRadius
+				);
+				gradient.addColorStop(0, "rgba(0, 255, 136, 0)");
+				gradient.addColorStop(0.5, "rgba(0, 255, 136, 0.3)");
+				gradient.addColorStop(1, "rgba(0, 255, 136, 0)");
+
+				ctx.strokeStyle = gradient;
+				ctx.lineWidth = 10;
+				ctx.globalAlpha = 0.4;
+				ctx.beginPath();
+				ctx.arc(centerX, centerY, pulseRadius, 0, Math.PI * 2);
+				ctx.stroke();
+			}
+		});
+
+		ctx.restore();
+	}
+
+	drawSonarReturns(ctx, centerX, centerY, scale) {
+		const currentTime = Date.now();
+
+		ctx.save();
+
+		// Draw all sonar returns as a proper sonar image
+		for (const [key, returnData] of this.sonarSystem.sonarData.entries()) {
+			const age = currentTime - returnData.timestamp;
+			const fadeProgress = age / this.sonarSystem.fadeTime;
+			const alpha = Math.max(0, 1 - fadeProgress);
+
+			if (alpha <= 0) continue;
+
+			// Convert polar coordinates to screen position
+			// Apply AUV heading offset so display rotates with AUV
+			const auvHeading = this.auv ? this.auv.rotation.z : 0; // Z rotation for horizontal turning
+			const angleRad = (returnData.angle * Math.PI) / 180 + auvHeading;
+			const distance = returnData.distance * scale;
+
+			const x = centerX + Math.cos(angleRad - Math.PI / 2) * distance;
+			const y = centerY + Math.sin(angleRad - Math.PI / 2) * distance;
+
+			// Color based on intensity and age
+			let intensity = returnData.intensity * alpha;
+
+			// Different colors for different object types
+			let r, g, b;
+			switch (returnData.type) {
+				case "building":
+					r = Math.floor(255 * intensity);
+					g = Math.floor(100 * intensity);
+					b = 0;
+					break;
+				case "vehicle":
+					r = Math.floor(255 * intensity);
+					g = Math.floor(255 * intensity);
+					b = 0;
+					break;
+				case "survivor":
+					r = Math.floor(255 * intensity);
+					g = 0;
+					b = 0;
+					break;
+				default:
+					r = 0;
+					g = Math.floor(255 * intensity);
+					b = Math.floor(100 * intensity);
+					break;
+			}
+
+			// Draw the sonar return pixel
+			ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${alpha})`;
+			ctx.fillRect(x - 1, y - 1, 3, 3);
+
+			// Add glow effect for strong returns
+			if (intensity > 0.7) {
+				ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${alpha * 0.3})`;
+				ctx.fillRect(x - 2, y - 2, 5, 5);
+			}
+		}
+
+		ctx.restore();
+	}
+
+	drawSonarGrid(ctx, centerX, centerY, maxRadius) {
+		ctx.save();
+		ctx.strokeStyle = "rgba(0, 255, 136, 0.2)";
+		ctx.lineWidth = 1;
+
+		// Range rings
+		const ringCount = 5;
+		for (let i = 1; i <= ringCount; i++) {
+			const radius = (maxRadius / ringCount) * i;
+			ctx.beginPath();
+			ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+			ctx.stroke();
+
+			// Range labels
+			ctx.fillStyle = "rgba(0, 255, 136, 0.6)";
+			ctx.font = "12px Courier New";
+			ctx.textAlign = "center";
+			const range = (this.sonarSystem.maxPulseRange / ringCount) * i;
+			ctx.fillText(range.toFixed(0) + "m", centerX + radius, centerY - 5);
+		}
+
+		// Bearing lines (every 30 degrees) - rotate with AUV heading
+		const auvHeading = this.auv ? this.auv.rotation.z : 0;
+		for (let angle = 0; angle < 360; angle += 30) {
+			const angleRad = (angle * Math.PI) / 180 + auvHeading;
+			const x1 = centerX + Math.cos(angleRad - Math.PI / 2) * 20;
+			const y1 = centerY + Math.sin(angleRad - Math.PI / 2) * 20;
+			const x2 = centerX + Math.cos(angleRad - Math.PI / 2) * maxRadius;
+			const y2 = centerY + Math.sin(angleRad - Math.PI / 2) * maxRadius;
+
+			ctx.beginPath();
+			ctx.moveTo(x1, y1);
+			ctx.lineTo(x2, y2);
+			ctx.stroke();
+
+			// Bearing labels - show relative bearing
+			ctx.fillStyle = "rgba(0, 255, 136, 0.8)";
+			ctx.font = "14px Courier New";
+			ctx.textAlign = "center";
+			const labelX =
+				centerX + Math.cos(angleRad - Math.PI / 2) * (maxRadius + 15);
+			const labelY =
+				centerY + Math.sin(angleRad - Math.PI / 2) * (maxRadius + 15);
+
+			// Show relative bearing (0° is always forward for the AUV)
+			const relativeBearing = angle;
+			ctx.fillText(relativeBearing + "°", labelX, labelY);
+		}
+
+		// Center point (AUV position)
+		ctx.fillStyle = this.sonarSystem.pulseColor;
+		ctx.beginPath();
+		ctx.arc(centerX, centerY, 3, 0, Math.PI * 2);
+		ctx.fill();
+
+		ctx.restore();
+	}
+
+	drawSonarInfo(ctx, canvas) {
+		ctx.save();
+		ctx.fillStyle = "rgba(0, 255, 136, 0.8)";
+		ctx.font = "16px Courier New";
+		ctx.textAlign = "left";
+
+		// Sonar info display
+		const info = [
+			`SONAR ACTIVE`,
+			`Range: ${this.sonarSystem.maxPulseRange}m`,
+			`Pulses: ${this.sonarSystem.pulses.length}`,
+			`Returns: ${this.sonarSystem.sonarData.size}`,
+		];
+
+		info.forEach((text, index) => {
+			ctx.fillText(text, 20, 30 + index * 20);
+		});
+
+		// Pulse indicator
+		if (this.sonarSystem.pulses.length > 0) {
+			const pulseAge =
+				Date.now() -
+				this.sonarSystem.pulses[this.sonarSystem.pulses.length - 1]
+					.timestamp;
+			const pulseFlash = Math.sin(pulseAge * 0.01) * 0.5 + 0.5;
+			ctx.fillStyle = `rgba(0, 255, 136, ${pulseFlash})`;
+			ctx.fillText("● PING", canvas.width - 100, 30);
+		}
+
+		ctx.restore();
 	}
 
 	applyCameraEffects() {
 		// Reset renderer effects
 		this.renderer.setClearColor(0x004466, 1.0);
+
+		// Update sonar canvas visibility
+		if (this.sonarSystem.canvas) {
+			this.sonarSystem.canvas.style.display =
+				this.cameraMode === "sonar" ? "block" : "none";
+		}
 
 		switch (this.cameraMode) {
 			case "optical":
@@ -1190,6 +1678,9 @@ export class AUVLogic {
 		this.camera.updateProjectionMatrix();
 		this.renderer.setSize(width, height);
 		this.renderer.setPixelRatio(window.devicePixelRatio);
+
+		// Update sonar canvas size
+		this.updateSonarCanvasSize();
 	}
 
 	animate() {
@@ -1200,6 +1691,7 @@ export class AUVLogic {
 		this.animateFloatingDebris();
 		this.updateHitboxes(); // Update hitbox positions
 		this.applyCameraModeEffects(); // Apply visual effects based on camera mode
+		this.updateSonarScan(); // Update sonar scanning
 
 		if (this.renderer && this.scene && this.camera) {
 			this.renderer.render(this.scene, this.camera);
