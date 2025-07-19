@@ -42,7 +42,7 @@ export class AUVLogic {
 		};
 
 		// Camera offset from AUV (first person view) - positioned in front of AUV
-		this.cameraOffset = new THREE.Vector3(0, -10, 0); // Further forward from the AUV
+		this.cameraOffset = new THREE.Vector3(0, -2, 0.5); // Adjusted for smaller AUV
 
 		// Scene constraints
 		this.constraints = {
@@ -662,7 +662,7 @@ export class AUVLogic {
 
 					// Setup the loaded AUV
 					this.auv = object;
-					this.auv.scale.setScalar(0.5); // Adjust scale as needed
+					this.auv.scale.setScalar(0.15); // Much smaller scale to look more realistic
 					this.auv.position.set(0, 0, 0);
 
 					// Fix AUV orientation - rotate to fix vertical loading
@@ -1152,16 +1152,24 @@ export class AUVLogic {
 	checkCollision(newPosition) {
 		if (!this.auv) return false;
 
-		// Update AUV bounding box at the new position
-		this.auvBoundingBox.setFromCenterAndSize(
-			newPosition,
-			new THREE.Vector3(2, 4, 10) // AUV dimensions (width, height, length)
-		);
+		// Create a temporary AUV at the new position to test collision
+		const originalPosition = this.auv.position.clone();
+		this.auv.position.copy(newPosition);
+
+		// Get the actual AUV bounding box at the new position
+		this.auvBoundingBox.setFromObject(this.auv);
+
+		// Restore original position
+		this.auv.position.copy(originalPosition);
 
 		// Check collision with all collidable objects
 		for (let obj of this.collisionObjects) {
 			const objBoundingBox = new THREE.Box3().setFromObject(obj);
 			if (this.auvBoundingBox.intersectsBox(objBoundingBox)) {
+				console.log(
+					"Collision detected with:",
+					obj.userData?.type || "unknown object"
+				);
 				return true; // Collision detected
 			}
 		}
