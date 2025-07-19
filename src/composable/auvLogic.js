@@ -29,6 +29,10 @@ export class AUVLogic {
 		this.mouseSensitivity = 0.002;
 		this.isPointerLocked = false;
 
+		// Camera modes: 'optical', 'sonar'
+		this.cameraMode = "optical";
+		this.sonarRenderer = null;
+
 		// Input state
 		this.keys = {
 			forward: false,
@@ -55,6 +59,19 @@ export class AUVLogic {
 		this.collisionObjects = []; // Array to store objects that can be collided with
 		this.auvBoundingBox = new THREE.Box3(); // AUV bounding box for collision detection
 		this.raycaster = new THREE.Raycaster(); // For raycasting collision detection
+
+		// Collision tracking for GUI
+		this.collisionData = {
+			active: false,
+			damageStatus: {
+				front: false,
+				left: false,
+				right: false,
+				back: false,
+			},
+			newCollision: null,
+			lastCollisionTime: 0,
+		};
 
 		console.log("AUV Logic constructor called");
 		this.init();
@@ -801,6 +818,9 @@ export class AUVLogic {
 			case "KeyV":
 				this.toggleHitboxes();
 				break;
+			case "KeyF":
+				this.cycleCameraMode();
+				break;
 		}
 	}
 
@@ -870,6 +890,43 @@ export class AUVLogic {
 			}
 			console.log("AUV view enabled");
 		}
+	}
+
+	cycleCameraMode() {
+		const modes = ["optical", "sonar"];
+		const currentIndex = modes.indexOf(this.cameraMode);
+		this.cameraMode = modes[(currentIndex + 1) % modes.length];
+
+		console.log(
+			`Camera mode switched to: ${this.cameraMode.toUpperCase()}`
+		);
+		this.applyCameraEffects();
+	}
+
+	applyCameraEffects() {
+		// Reset renderer effects
+		this.renderer.setClearColor(0x004466, 1.0);
+
+		switch (this.cameraMode) {
+			case "optical":
+				// Normal underwater view
+				this.scene.fog.color.setHex(0x006994);
+				this.scene.fog.near = 1;
+				this.scene.fog.far = 50;
+				break;
+
+			case "sonar":
+				// Sonar view - darker with green tint
+				this.renderer.setClearColor(0x001100, 1.0);
+				this.scene.fog.color.setHex(0x002200);
+				this.scene.fog.near = 0.5;
+				this.scene.fog.far = 30;
+				break;
+		}
+	}
+
+	getCameraMode() {
+		return this.cameraMode;
 	}
 
 	updateMovement() {
@@ -1142,10 +1199,67 @@ export class AUVLogic {
 		this.animateParticles();
 		this.animateFloatingDebris();
 		this.updateHitboxes(); // Update hitbox positions
+		this.applyCameraModeEffects(); // Apply visual effects based on camera mode
 
 		if (this.renderer && this.scene && this.camera) {
 			this.renderer.render(this.scene, this.camera);
 		}
+	}
+
+	applyCameraModeEffects() {
+		// Apply different visual effects based on camera mode
+		this.scene.traverse((object) => {
+			if (object.isMesh && object.material && object.material.color) {
+				// Only process materials that have a color property
+				// Store original material properties if not already stored
+				if (!object.userData.originalMaterial) {
+					object.userData.originalMaterial = {
+						color: object.material.color.clone(),
+						emissive: object.material.emissive
+							? object.material.emissive.clone()
+							: null,
+						opacity: object.material.opacity || 1,
+					};
+				}
+
+				switch (this.cameraMode) {
+					case "optical":
+						// Normal view - restore original colors
+						object.material.color.copy(
+							object.userData.originalMaterial.color
+						);
+						if (
+							object.userData.originalMaterial.emissive &&
+							object.material.emissive
+						) {
+							object.material.emissive.copy(
+								object.userData.originalMaterial.emissive
+							);
+						}
+						object.material.opacity =
+							object.userData.originalMaterial.opacity;
+						break;
+
+					case "sonar":
+						// Sonar view - green monochrome with distance-based intensity
+						if (this.auv && object !== this.auv) {
+							const distance = this.auv.position.distanceTo(
+								object.position
+							);
+							const intensity = Math.max(0.1, 1 - distance / 50);
+							object.material.color.setRGB(0, intensity, 0);
+							if (object.material.emissive) {
+								object.material.emissive.setRGB(
+									0,
+									intensity * 0.2,
+									0
+								);
+							}
+						}
+						break;
+				}
+			}
+		});
 	}
 
 	// Collision detection methods
@@ -1170,11 +1284,101 @@ export class AUVLogic {
 					"Collision detected with:",
 					obj.userData?.type || "unknown object"
 				);
+
+				// Calculate collision direction and update damage status
+				this.handleCollisionEvent(obj, originalPosition, newPosition);
+
 				return true; // Collision detected
 			}
 		}
 
+		// Reset collision status if no collision
+		this.collisionData.active = false;
+		this.resetDamageStatus();
 		return false;
+	}
+
+	handleCollisionEvent(collisionObject, originalPos, attemptedPos) {
+		const currentTime = Date.now();
+
+		// Prevent spam collisions (only trigger every 500ms)
+		if (currentTime - this.collisionData.lastCollisionTime < 500) {
+			this.collisionData.active = true;
+			return;
+		}
+
+		// Calculate collision direction relative to AUV
+		const collisionDirection = this.calculateCollisionDirection(
+			originalPos,
+			attemptedPos,
+			collisionObject
+		);
+
+		// Update damage status based on direction
+		this.updateDamageStatus(collisionDirection);
+
+		// Set collision data for GUI
+		this.collisionData.active = true;
+		this.collisionData.newCollision = {
+			type: collisionObject.userData?.type || "object",
+			direction: collisionDirection,
+			timestamp: currentTime,
+		};
+		this.collisionData.lastCollisionTime = currentTime;
+
+		// Clear new collision after GUI has time to process it
+		setTimeout(() => {
+			this.collisionData.newCollision = null;
+		}, 100);
+	}
+
+	calculateCollisionDirection(originalPos, attemptedPos, collisionObject) {
+		// Get the direction vector from AUV to collision object
+		const directionToObject = collisionObject.position
+			.clone()
+			.sub(originalPos)
+			.normalize();
+
+		// Get AUV's local coordinate system (accounting for rotation)
+		const auvForward = new THREE.Vector3(0, 1, 0); // Y is forward after rotation
+		const auvRight = new THREE.Vector3(1, 0, 0); // X is right
+
+		// Apply AUV rotation to get world directions
+		auvForward.applyQuaternion(this.auv.quaternion);
+		auvRight.applyQuaternion(this.auv.quaternion);
+
+		// Calculate dot products to determine direction
+		const forwardDot = directionToObject.dot(auvForward);
+		const rightDot = directionToObject.dot(auvRight);
+
+		// Determine primary collision direction
+		if (Math.abs(forwardDot) > Math.abs(rightDot)) {
+			return forwardDot > 0 ? "front" : "back";
+		} else {
+			return rightDot > 0 ? "right" : "left";
+		}
+	}
+
+	updateDamageStatus(direction) {
+		// Reset all damage first
+		this.resetDamageStatus();
+
+		// Set damage for the collision direction
+		this.collisionData.damageStatus[direction] = true;
+
+		// Clear damage after 2 seconds
+		setTimeout(() => {
+			this.collisionData.damageStatus[direction] = false;
+		}, 2000);
+	}
+
+	resetDamageStatus() {
+		this.collisionData.damageStatus = {
+			front: false,
+			left: false,
+			right: false,
+			back: false,
+		};
 	}
 
 	calculateSlideDirection(originalDirection, blockedPosition) {
@@ -1318,5 +1522,9 @@ export class AUVLogic {
 		});
 
 		return nearest;
+	}
+
+	getCollisionData() {
+		return this.collisionData;
 	}
 }

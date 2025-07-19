@@ -1,7 +1,7 @@
 <template>
 	<div class="seasick-gui">
 		<!-- Main Display Area -->
-		<div class="main-display">
+		<div class="main-display" :class="{ 'screen-shake': screenShake }">
 			<!-- Fullscreen Camera Canvas -->
 			<canvas ref="mainCanvas" id="mainCanvas"></canvas>
 
@@ -21,6 +21,70 @@
 					</div>
 				</div>
 
+				<!-- Collision Detection Panel -->
+				<div class="collision-panel">
+					<div class="panel-header">
+						<div class="panel-title">AUV STATUS</div>
+						<div
+							class="collision-indicator"
+							:class="{ 'collision-active': collisionActive }"
+						>
+							{{ collisionActive ? "IMPACT" : "CLEAR" }}
+						</div>
+					</div>
+
+					<!-- AUV Damage Visualization -->
+					<div class="auv-damage-display">
+						<div class="auv-schematic">
+							<!-- AUV Body sections -->
+							<div
+								class="auv-section front"
+								:class="{ damaged: damageStatus.front }"
+							>
+								<span class="section-label">FRONT</span>
+							</div>
+							<div
+								class="auv-section left"
+								:class="{ damaged: damageStatus.left }"
+							>
+								<span class="section-label">PORT</span>
+							</div>
+							<div
+								class="auv-section right"
+								:class="{ damaged: damageStatus.right }"
+							>
+								<span class="section-label">STAR</span>
+							</div>
+							<div
+								class="auv-section back"
+								:class="{ damaged: damageStatus.back }"
+							>
+								<span class="section-label">REAR</span>
+							</div>
+						</div>
+					</div>
+
+					<!-- Recent Collision Log -->
+					<div class="collision-log">
+						<div class="log-header">RECENT IMPACTS</div>
+						<div class="log-entries">
+							<div
+								v-for="(collision, index) in recentCollisions"
+								:key="index"
+								class="log-entry"
+								:class="{ fresh: collision.fresh }"
+							>
+								<span class="collision-time">{{
+									collision.time
+								}}</span>
+								<span class="collision-type">{{
+									collision.type
+								}}</span>
+							</div>
+						</div>
+					</div>
+				</div>
+
 				<!-- Camera Crosshairs and Info -->
 				<div class="viewport-overlay">
 					<div class="crosshairs">
@@ -28,6 +92,14 @@
 						<div class="crosshair-line crosshair-horizontal"></div>
 						<div class="crosshair-line crosshair-vertical"></div>
 						<div class="crosshair-circle"></div>
+					</div>
+					<div class="camera-mode-display">
+						<div class="camera-mode-label">
+							{{ cameraMode.toUpperCase() }} CAMERA
+						</div>
+						<div class="camera-mode-hint">
+							Press F to switch modes
+						</div>
 					</div>
 				</div>
 
@@ -40,7 +112,7 @@
 								<span class="status-indicator green"></span>
 								<span class="status-text">POWER</span>
 								<span class="status-value"
-									>{{ batteryLevel }}%</span
+									>{{ Math.round(batteryLevel) }}%</span
 								>
 							</div>
 							<div class="status-row">
@@ -49,14 +121,36 @@
 								<span class="status-value">ONLINE</span>
 							</div>
 							<div class="status-row">
-								<span class="status-indicator green"></span>
+								<span
+									class="status-indicator"
+									:class="
+										cameraMode === 'sonar'
+											? 'green'
+											: 'orange'
+									"
+								></span>
 								<span class="status-text">SONAR</span>
-								<span class="status-value">ACTIVE</span>
+								<span class="status-value">{{
+									cameraMode === "sonar"
+										? "ACTIVE"
+										: "STANDBY"
+								}}</span>
 							</div>
 							<div class="status-row">
-								<span class="status-indicator orange"></span>
-								<span class="status-text">THERMAL</span>
-								<span class="status-value">SCAN</span>
+								<span
+									class="status-indicator"
+									:class="
+										cameraMode === 'optical'
+											? 'orange'
+											: 'gray'
+									"
+								></span>
+								<span class="status-text">OPTICS</span>
+								<span class="status-value">{{
+									cameraMode === "optical"
+										? "ACTIVE"
+										: "STANDBY"
+								}}</span>
 							</div>
 						</div>
 					</div>
@@ -78,7 +172,9 @@
 							</div>
 							<div class="env-row">
 								<span class="env-label">VISIBILITY:</span>
-								<span class="env-value">GOOD</span>
+								<span class="env-value">{{
+									getVisibilityStatus()
+								}}</span>
 							</div>
 						</div>
 					</div>
@@ -146,16 +242,8 @@
 
 		<!-- Bottom Control Panel -->
 		<div class="bottom-panel">
-			<!-- Left: Gauges -->
+			<!-- Left: Speed Gauge -->
 			<div class="gauge-section">
-				<div class="gauge small-gauge">
-					<div class="gauge-face">
-						<div class="gauge-needle"></div>
-					</div>
-					<div class="gauge-label">{{ batteryLevel }}</div>
-					<div class="gauge-unit">BAT</div>
-				</div>
-
 				<div class="gauge main-gauge">
 					<div class="gauge-face">
 						<div class="gauge-scale">
@@ -182,17 +270,9 @@
 					<div class="gauge-label">{{ robotSpeed.toFixed(1) }}</div>
 					<div class="gauge-unit">KNOTS</div>
 				</div>
-
-				<div class="gauge small-gauge">
-					<div class="gauge-face">
-						<div class="gauge-needle"></div>
-					</div>
-					<div class="gauge-label">{{ waterTemperature }}</div>
-					<div class="gauge-unit">°C</div>
-				</div>
 			</div>
 
-			<!-- Center: Depth Display -->
+			<!-- Center: Depth Display with Battery and Temperature -->
 			<div class="depth-section">
 				<div class="depth-display-main">
 					<div class="depth-circle">
@@ -200,6 +280,20 @@
 						<div class="depth-unit-large">METERS</div>
 					</div>
 					<div class="depth-label-main">DEPTH</div>
+				</div>
+
+				<!-- Additional Info -->
+				<div class="depth-info">
+					<div class="info-item">
+						<div class="info-label">BAT</div>
+						<div class="info-value">
+							{{ Math.round(batteryLevel) }}%
+						</div>
+					</div>
+					<div class="info-item">
+						<div class="info-label">TEMP</div>
+						<div class="info-value">{{ waterTemperature }}°C</div>
+					</div>
 				</div>
 			</div>
 
@@ -261,12 +355,24 @@ const waterTemperature = ref(24);
 const pressure = ref(1.2);
 const sweepAngle = ref(0);
 const compassHeading = ref(0);
+const cameraMode = ref("optical");
 
 // Search and rescue state
 const searchProgress = ref({ found: 0, total: 0 });
 const nearestTarget = ref(null);
 const searchStatus = ref("SEARCHING");
 const searchStatusClass = ref("searching");
+
+// Collision detection state
+const collisionActive = ref(false);
+const damageStatus = ref({
+	front: false,
+	left: false,
+	right: false,
+	back: false,
+});
+const recentCollisions = ref([]);
+const screenShake = ref(false);
 
 // AUV Logic instance
 let auvLogic = null;
@@ -297,8 +403,8 @@ const updateGUIFromAUV = () => {
 		const rotation = auvLogic.getRotation();
 
 		// Update position (convert to lat/lng format)
-		latitude.value = (position.x * 0.00001).toFixed(6);
-		longitude.value = (position.z * 0.00001).toFixed(6);
+		latitude.value = (40.7128 + position.x * 0.0001).toFixed(6); // Start from NYC coordinates
+		longitude.value = (-74.006 + position.z * 0.0001).toFixed(6);
 
 		// Update depth
 		currentDepth.value = depth.toFixed(1);
@@ -312,9 +418,34 @@ const updateGUIFromAUV = () => {
 		// Normalize to 0-360 range and adjust for compass orientation
 		compassHeading.value = (360 - rotationDegrees) % 360;
 
+		// Update camera mode
+		cameraMode.value = auvLogic.getCameraMode();
+
+		// Update environmental data based on depth and conditions
+		waterTemperature.value = Math.max(4, 24 - Math.floor(depth * 2)); // Temp decreases with depth
+		pressure.value = (1 + depth * 0.1).toFixed(1); // Pressure increases with depth
+
+		// Battery decreases slowly over time
+		if (speed > 0) {
+			batteryLevel.value = Math.max(0, batteryLevel.value - 0.01);
+		}
+
 		// Update search and rescue data
 		searchProgress.value = auvLogic.getSearchProgress();
 		nearestTarget.value = auvLogic.getNearestTarget();
+
+		// Update collision data
+		const collisionData = auvLogic.getCollisionData();
+		if (collisionData) {
+			collisionActive.value = collisionData.active;
+			damageStatus.value = collisionData.damageStatus;
+
+			// Add new collisions to log
+			if (collisionData.newCollision) {
+				addCollisionToLog(collisionData.newCollision);
+				triggerScreenShake();
+			}
+		}
 
 		// Update search status
 		if (
@@ -331,6 +462,57 @@ const updateGUIFromAUV = () => {
 			searchStatusClass.value = "searching";
 		}
 	}
+};
+
+// Get visibility status based on camera mode and depth
+const getVisibilityStatus = () => {
+	if (!auvLogic) return "UNKNOWN";
+
+	const depth = parseFloat(currentDepth.value);
+	const mode = cameraMode.value;
+
+	if (mode === "sonar") {
+		return depth < 5 ? "EXCELLENT" : "GOOD";
+	} else {
+		// Optical camera - visibility decreases with depth
+		if (depth < 2) return "EXCELLENT";
+		if (depth < 5) return "GOOD";
+		if (depth < 8) return "POOR";
+		return "LIMITED";
+	}
+};
+
+// Add collision to log
+const addCollisionToLog = (collision) => {
+	const now = new Date();
+	const timeStr = now.toLocaleTimeString().slice(0, 8);
+
+	const newCollision = {
+		time: timeStr,
+		type: collision.type.toUpperCase(),
+		direction: collision.direction,
+		fresh: true,
+	};
+
+	recentCollisions.value.unshift(newCollision);
+
+	// Keep only last 5 collisions
+	if (recentCollisions.value.length > 5) {
+		recentCollisions.value.pop();
+	}
+
+	// Remove fresh status after 3 seconds
+	setTimeout(() => {
+		newCollision.fresh = false;
+	}, 3000);
+};
+
+// Trigger screen shake effect
+const triggerScreenShake = () => {
+	screenShake.value = true;
+	setTimeout(() => {
+		screenShake.value = false;
+	}, 500);
 };
 
 onMounted(() => {
