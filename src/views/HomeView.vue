@@ -85,6 +85,25 @@
 					</div>
 				</div>
 
+				<!-- Random Events Panel -->
+				<div class="event-panel" v-if="currentEvent">
+					<div class="panel-header">
+						<div class="panel-title">ACTIVE EVENT</div>
+						<div class="event-indicator active">
+							{{ currentEvent.name.toUpperCase() }}
+						</div>
+					</div>
+					<div class="event-details">
+						<div class="event-description">
+							{{ currentEvent.description }}
+						</div>
+						<div class="event-timer">
+							Time Remaining:
+							{{ formatTime(currentEvent.timeRemaining) }}
+						</div>
+					</div>
+				</div>
+
 				<!-- Camera Crosshairs and Info -->
 				<div class="viewport-overlay">
 					<div class="crosshairs">
@@ -374,6 +393,9 @@ const damageStatus = ref({
 const recentCollisions = ref([]);
 const screenShake = ref(false);
 
+// Random Events state
+const currentEvent = ref(null);
+
 // AUV Logic instance
 let auvLogic = null;
 const mainCanvas = ref(null);
@@ -391,6 +413,14 @@ const updateTime = () => {
 // Animate sonar sweep
 const animateSweep = () => {
 	sweepAngle.value = (sweepAngle.value + 2) % 360;
+};
+
+// Format time in mm:ss format
+const formatTime = (milliseconds) => {
+	const totalSeconds = Math.floor(milliseconds / 1000);
+	const minutes = Math.floor(totalSeconds / 60);
+	const seconds = totalSeconds % 60;
+	return `${minutes}:${seconds.toString().padStart(2, "0")}`;
 };
 
 // Update GUI values from AUV
@@ -461,6 +491,10 @@ const updateGUIFromAUV = () => {
 			searchStatus.value = "SEARCHING";
 			searchStatusClass.value = "searching";
 		}
+
+		// Update random events
+		const eventDescription = auvLogic.getEventDescription();
+		currentEvent.value = eventDescription;
 	}
 };
 

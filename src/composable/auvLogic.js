@@ -22,6 +22,7 @@ export class AUVLogic {
 		this.lastUpdateTime = Date.now();
 		this.speedSamples = []; // For speed smoothing
 		this.maxSpeedSamples = 10;
+		this.compassErrorOffset = 0; // For magnetic interference events
 
 		// Camera control
 		this.isFreeCam = false;
@@ -35,30 +36,17 @@ export class AUVLogic {
 
 		// Sonar system
 		this.sonarSystem = {
-			sweepAngle: 0,
-			sweepSpeed: 0.05, // Radians per frame
 			detectedObjects: [],
 			scanRadius: 50,
 			fadeTime: 8000, // How long detections stay visible (ms)
 			canvas: null,
 			ctx: null,
 			isActive: false,
-
-			// Sonar pulse system
-			pulses: [], // Active sonar pulses
-			pulseSpeed: 0.5, // Slower sonar pulse travel (meters per frame)
-			pulseInterval: 1200, // Slower pulse rate (milliseconds between pulses)
-			lastPulseTime: 0,
-			maxPulseRange: 50,
-
-			// Sonar image data
-			sonarData: new Map(), // Stores sonar returns by angle and distance
-			imageResolution: 360, // Angular resolution (degrees)
-			rangeResolution: 100, // Distance resolution (meters)
+			maxPulseRange: 50, // Keep this for compatibility
+			pulses: [], // Keep empty array for compatibility
 
 			// Visual settings
 			backgroundColor: 0x000811,
-			pulseColor: "#00ff88",
 			returnColor: "#88ff00",
 			oldReturnColor: "#446622",
 		};
@@ -103,6 +91,70 @@ export class AUVLogic {
 			lastCollisionTime: 0,
 		};
 
+		// Random Events System
+		this.randomEvents = {
+			active: null,
+			lastEventTime: 0,
+			eventCooldown: 15000, // 15 seconds minimum between events
+			eventTypes: [
+				"highCurrent",
+				"lowVisibility",
+				"thermalLayer",
+				"magneticInterference",
+				"equipment_malfunction",
+				"marine_life_interference",
+				"underwater_storm",
+			],
+			effects: {
+				highCurrent: {
+					name: "High Current",
+					duration: Math.random() * 30000 + 30000, // 30-60 seconds
+					force: new THREE.Vector3(),
+					description:
+						"Strong underwater currents affecting movement",
+				},
+				lowVisibility: {
+					name: "Low Visibility",
+					duration: Math.random() * 30000 + 30000, // 30-60 seconds
+					fogDensity: 0.8,
+					description: "Reduced visibility due to sediment or algae",
+				},
+				thermalLayer: {
+					name: "Thermal Layer",
+					duration: Math.random() * 30000 + 30000, // 30-60 seconds
+					sonarInterference: 0.6,
+					description:
+						"Temperature differences affecting sonar accuracy",
+				},
+				magneticInterference: {
+					name: "Magnetic Interference",
+					duration: Math.random() * 30000 + 30000, // 30-60 seconds
+					compassError: 15,
+					description:
+						"Magnetic anomaly affecting navigation systems",
+				},
+				equipment_malfunction: {
+					name: "Equipment Malfunction",
+					duration: Math.random() * 30000 + 30000, // 30-60 seconds
+					systemAffected: null,
+					description: "Temporary system malfunction",
+				},
+				marine_life_interference: {
+					name: "Marine Life Interference",
+					duration: Math.random() * 30000 + 30000, // 30-60 seconds
+					sonarNoise: 0.7,
+					description:
+						"Large marine animals interfering with sensors",
+				},
+				underwater_storm: {
+					name: "Underwater Storm",
+					duration: Math.random() * 30000 + 30000, // 30-60 seconds
+					turbulence: 2.0,
+					description: "Underwater disturbance causing turbulence",
+				},
+			},
+		};
+
 		console.log("AUV Logic constructor called");
 		this.init();
 		this.setupEventListeners();
@@ -115,9 +167,9 @@ export class AUVLogic {
 		// Create scene
 		this.scene = new THREE.Scene();
 
-		// Create underwater fog effect
-		this.scene.fog = new THREE.Fog(0x006994, 1, 50);
-		this.scene.background = new THREE.Color(0x004466);
+		// Create underwater fog effect with sonar colors
+		this.scene.fog = new THREE.Fog(0x001144, 1, 50);
+		this.scene.background = new THREE.Color(0x000811);
 
 		// Get canvas dimensions
 		const rect = this.canvas.getBoundingClientRect();
@@ -162,6 +214,9 @@ export class AUVLogic {
 		// Create underwater environment
 		this.createUnderwaterEnvironment();
 		console.log("Environment created");
+
+		// Store original material colors before any mode effects
+		this.storeOriginalMaterials();
 
 		// Load AUV model
 		this.loadAUVModel();
@@ -225,10 +280,10 @@ export class AUVLogic {
 	}
 
 	createUnderwaterEnvironment() {
-		// Create ocean floor (more murky for flood scenario)
+		// Create ocean floor with sonar color theme
 		const floorGeometry = new THREE.PlaneGeometry(200, 200);
 		const floorMaterial = new THREE.MeshLambertMaterial({
-			color: 0x2a3a2a, // Darker, murkier color for flood water
+			color: 0x001122, // Dark blue sonar color
 			transparent: true,
 			opacity: 0.9,
 		});
@@ -251,6 +306,24 @@ export class AUVLogic {
 		// Hitbox visibility state
 		this.hitboxVisible = false;
 		this.showHitboxes();
+	}
+
+	storeOriginalMaterials() {
+		// Store original material colors before any camera mode effects
+		this.scene.traverse((object) => {
+			if (object.isMesh && object.material && object.material.color) {
+				// Only store if not already stored
+				if (!object.userData.originalMaterial) {
+					object.userData.originalMaterial = {
+						color: object.material.color.clone(),
+						emissive: object.material.emissive
+							? object.material.emissive.clone()
+							: null,
+						opacity: object.material.opacity || 1,
+					};
+				}
+			}
+		});
 	}
 
 	showHitboxes() {
@@ -313,15 +386,15 @@ export class AUVLogic {
 	}
 
 	createSubmergedBuildings() {
-		// Create several buildings of different sizes
+		// Create several buildings of different sizes with sonar colors
 		const buildingConfigs = [
-			{ x: 20, z: 15, width: 8, height: 12, depth: 6, color: 0x8b4513 },
-			{ x: -15, z: 25, width: 6, height: 15, depth: 8, color: 0x696969 },
-			{ x: 35, z: -20, width: 10, height: 10, depth: 7, color: 0x8b4513 },
-			{ x: -30, z: -10, width: 5, height: 8, depth: 5, color: 0x708090 },
-			{ x: 0, z: 40, width: 12, height: 18, depth: 10, color: 0x696969 },
-			{ x: -40, z: 15, width: 7, height: 11, depth: 6, color: 0x8b4513 },
-			{ x: 25, z: 35, width: 9, height: 14, depth: 8, color: 0x708090 },
+			{ x: 20, z: 15, width: 8, height: 12, depth: 6, color: 0xffcc00 },
+			{ x: -15, z: 25, width: 6, height: 15, depth: 8, color: 0xff8800 },
+			{ x: 35, z: -20, width: 10, height: 10, depth: 7, color: 0xffcc00 },
+			{ x: -30, z: -10, width: 5, height: 8, depth: 5, color: 0xff4400 },
+			{ x: 0, z: 40, width: 12, height: 18, depth: 10, color: 0xff8800 },
+			{ x: -40, z: 15, width: 7, height: 11, depth: 6, color: 0xffcc00 },
+			{ x: 25, z: 35, width: 9, height: 14, depth: 8, color: 0xff4400 },
 		];
 
 		buildingConfigs.forEach((config, index) => {
@@ -343,6 +416,15 @@ export class AUVLogic {
 			building.castShadow = true;
 			building.receiveShadow = true;
 			building.userData = { type: "building", id: index };
+
+			// Store original material immediately after creation
+			building.userData.originalMaterial = {
+				color: buildingMaterial.color.clone(),
+				emissive: buildingMaterial.emissive
+					? buildingMaterial.emissive.clone()
+					: null,
+				opacity: buildingMaterial.opacity,
+			};
 
 			this.scene.add(building);
 			this.collisionObjects.push(building);
@@ -372,15 +454,38 @@ export class AUVLogic {
 					building.position.y - config.height / 2 + j * 2 + 1,
 					building.position.z + config.depth / 2 + 0.01
 				);
+				// Store original material for window
+				window1.userData = {
+					originalMaterial: {
+						color: windowMaterial.color.clone(),
+						emissive: windowMaterial.emissive
+							? windowMaterial.emissive.clone()
+							: null,
+						opacity: windowMaterial.opacity,
+					},
+				};
 				this.scene.add(window1);
 
-				const window2 = new THREE.Mesh(windowGeometry, windowMaterial);
+				const window2 = new THREE.Mesh(
+					windowGeometry,
+					windowMaterial.clone()
+				);
 				window2.position.set(
 					building.position.x + (i - 1) * 2,
 					building.position.y - config.height / 2 + j * 2 + 1,
 					building.position.z - config.depth / 2 - 0.01
 				);
 				window2.rotation.y = Math.PI;
+				// Store original material for window
+				window2.userData = {
+					originalMaterial: {
+						color: window2.material.color.clone(),
+						emissive: window2.material.emissive
+							? window2.material.emissive.clone()
+							: null,
+						opacity: window2.material.opacity,
+					},
+				};
 				this.scene.add(window2);
 			}
 		}
@@ -405,6 +510,16 @@ export class AUVLogic {
 				building.position.y + (Math.random() - 0.5) * config.height,
 				building.position.z + config.depth / 2 + 0.5
 			);
+			// Store original material for damage
+			damage.userData = {
+				originalMaterial: {
+					color: damageMaterial.color.clone(),
+					emissive: damageMaterial.emissive
+						? damageMaterial.emissive.clone()
+						: null,
+					opacity: damageMaterial.opacity,
+				},
+			};
 			this.scene.add(damage);
 		}
 	}
@@ -425,20 +540,42 @@ export class AUVLogic {
 			const carBodyGeometry = new THREE.BoxGeometry(4, 1.5, 2);
 			const carBodyMaterial = new THREE.MeshLambertMaterial({
 				color: [
-					0xff0000, 0x0000ff, 0x00ff00, 0xffff00, 0xff00ff, 0x00ffff,
+					0xff4400, 0xff8800, 0xffcc00, 0x00ffff, 0x0088ff, 0x004488,
 				][index % 6],
 			});
 			const carBody = new THREE.Mesh(carBodyGeometry, carBodyMaterial);
 			carBody.position.set(pos.x, -8.5, pos.z);
 			carBody.castShadow = true;
-			carBody.userData = { type: "vehicle", id: index };
+			carBody.userData = {
+				type: "vehicle",
+				id: index,
+				originalMaterial: {
+					color: carBodyMaterial.color.clone(),
+					emissive: carBodyMaterial.emissive
+						? carBodyMaterial.emissive.clone()
+						: null,
+					opacity: carBodyMaterial.opacity,
+				},
+			};
 			this.scene.add(carBody);
 			this.collisionObjects.push(carBody);
 
 			// Car roof
 			const carRoofGeometry = new THREE.BoxGeometry(3, 1, 1.8);
-			const carRoof = new THREE.Mesh(carRoofGeometry, carBodyMaterial);
+			const carRoof = new THREE.Mesh(
+				carRoofGeometry,
+				carBodyMaterial.clone()
+			);
 			carRoof.position.set(pos.x, -7.5, pos.z);
+			carRoof.userData = {
+				originalMaterial: {
+					color: carRoof.material.color.clone(),
+					emissive: carRoof.material.emissive
+						? carRoof.material.emissive.clone()
+						: null,
+					opacity: carRoof.material.opacity,
+				},
+			};
 			this.scene.add(carRoof);
 
 			// Wheels (partially buried)
@@ -455,9 +592,21 @@ export class AUVLogic {
 			];
 
 			wheelPositions.forEach((wheelPos) => {
-				const wheel = new THREE.Mesh(wheelGeometry, wheelMaterial);
+				const wheel = new THREE.Mesh(
+					wheelGeometry,
+					wheelMaterial.clone()
+				);
 				wheel.position.set(wheelPos.x, -9, wheelPos.z);
 				wheel.rotation.z = Math.PI / 2;
+				wheel.userData = {
+					originalMaterial: {
+						color: wheel.material.color.clone(),
+						emissive: wheel.material.emissive
+							? wheel.material.emissive.clone()
+							: null,
+						opacity: wheel.material.opacity,
+					},
+				};
 				this.scene.add(wheel);
 			});
 		});
@@ -518,7 +667,7 @@ export class AUVLogic {
 				Math.random() * 3 + 2
 			);
 			const trunkMaterial = new THREE.MeshLambertMaterial({
-				color: 0x8b4513,
+				color: 0x00ffff,
 			});
 			const trunk = new THREE.Mesh(trunkGeometry, trunkMaterial);
 
@@ -544,11 +693,9 @@ export class AUVLogic {
 				Math.random() * 1 + 0.5
 			);
 			const debrisMaterial = new THREE.MeshLambertMaterial({
-				color: new THREE.Color().setHSL(
-					0.1,
-					0.2,
-					Math.random() * 0.3 + 0.3
-				),
+				color: [0x00ffff, 0x0088ff, 0x004488][
+					Math.floor(Math.random() * 3)
+				],
 			});
 			const debris = new THREE.Mesh(debrisGeometry, debrisMaterial);
 
@@ -578,8 +725,8 @@ export class AUVLogic {
 			// Simple human figure representation
 			const bodyGeometry = new THREE.CapsuleGeometry(0.3, 1.5);
 			const bodyMaterial = new THREE.MeshLambertMaterial({
-				color: 0xffdbac, // Skin tone
-				emissive: 0x004400, // Slight green glow to make them visible
+				color: 0xff4400, // Bright red-orange for survivors
+				emissive: 0x440000, // Red glow to make them visible
 				emissiveIntensity: 0.1,
 			});
 			const person = new THREE.Mesh(bodyGeometry, bodyMaterial);
@@ -620,14 +767,14 @@ export class AUVLogic {
 	}
 
 	createFloodDebris() {
-		// Floating debris at various depths
+		// Floating debris at various depths with sonar colors
 		const debrisTypes = [
-			{ geometry: new THREE.BoxGeometry(1, 0.2, 0.5), color: 0x8b4513 }, // Wood planks
-			{ geometry: new THREE.SphereGeometry(0.3), color: 0x333333 }, // Balls/barrels
+			{ geometry: new THREE.BoxGeometry(1, 0.2, 0.5), color: 0x00ffff }, // Wood planks - cyan
+			{ geometry: new THREE.SphereGeometry(0.3), color: 0x0088ff }, // Balls/barrels - blue
 			{
 				geometry: new THREE.CylinderGeometry(0.2, 0.2, 1),
-				color: 0x888888,
-			}, // Pipes
+				color: 0x004488,
+			}, // Pipes - dark blue
 		];
 
 		for (let i = 0; i < 30; i++) {
@@ -936,9 +1083,124 @@ export class AUVLogic {
 		this.sonarSystem.isActive = this.cameraMode === "sonar";
 		if (this.sonarSystem.isActive) {
 			this.sonarSystem.detectedObjects = []; // Clear previous detections
+			this.showAllObjectHitboxes(); // Show all hitboxes immediately
+		} else {
+			this.hideAllObjectHitboxes(); // Hide hitboxes when switching off sonar
 		}
 
 		this.applyCameraEffects();
+	}
+
+	showAllObjectHitboxes() {
+		// Show wireframes for all collision objects immediately
+		this.collisionObjects.forEach((object) => {
+			if (!object.userData.sonarWireframe) {
+				// Calculate distance for intensity-based coloring
+				const distance = this.auv
+					? this.auv.position.distanceTo(object.position)
+					: 10;
+				const intensity = Math.max(
+					0.3,
+					1 - distance / this.sonarSystem.maxPulseRange
+				);
+
+				// Get realistic sonar colors based on object type and intensity
+				let wireframeColor = 0x0066aa; // Default blue fallback
+
+				switch (
+					object.userData?.type ||
+					object.parent?.userData?.type
+				) {
+					case "survivor":
+						// Survivors: bright red-orange
+						if (intensity > 0.7) {
+							wireframeColor = 0xff4400; // Bright red-orange
+						} else if (intensity > 0.4) {
+							wireframeColor = 0xff8800; // Orange
+						} else {
+							wireframeColor = 0xaa4400; // Dark orange
+						}
+						break;
+					case "building":
+					case "vehicle":
+						// Buildings/vehicles: yellow-orange
+						if (intensity > 0.7) {
+							wireframeColor = 0xffcc00; // Bright yellow
+						} else if (intensity > 0.4) {
+							wireframeColor = 0xff8800; // Orange
+						} else {
+							wireframeColor = 0xcc6600; // Dark orange
+						}
+						break;
+					case "debris":
+						// Debris: cyan-blue
+						if (intensity > 0.7) {
+							wireframeColor = 0x00ffff; // Bright cyan
+						} else if (intensity > 0.4) {
+							wireframeColor = 0x0088ff; // Blue-cyan
+						} else {
+							wireframeColor = 0x004488; // Dark blue
+						}
+						break;
+					default:
+						// Unknown objects: standard sonar progression (blue to yellow)
+						if (intensity > 0.7) {
+							wireframeColor = 0xffff00; // Bright yellow
+						} else if (intensity > 0.4) {
+							wireframeColor = 0x00ffaa; // Cyan-green
+						} else {
+							wireframeColor = 0x0066aa; // Dark blue
+						}
+						break;
+				}
+
+				const wireframe = new THREE.BoxHelper(object, wireframeColor);
+				wireframe.material.transparent = true;
+				wireframe.material.opacity = 0.8;
+				wireframe.userData = {
+					isSonarWireframe: true,
+					parentObject: object,
+				};
+				this.scene.add(wireframe);
+				object.userData.sonarWireframe = wireframe;
+			}
+		});
+
+		// Also show wireframes for search targets (survivors)
+		if (this.searchTargets) {
+			this.searchTargets.forEach((target) => {
+				if (!target.userData.sonarWireframe) {
+					const wireframe = new THREE.BoxHelper(target, 0xff4444);
+					wireframe.material.transparent = true;
+					wireframe.material.opacity = 0.8;
+					wireframe.userData = {
+						isSonarWireframe: true,
+						parentObject: target,
+					};
+					this.scene.add(wireframe);
+					target.userData.sonarWireframe = wireframe;
+				}
+			});
+		}
+	}
+
+	hideAllObjectHitboxes() {
+		// Remove all sonar wireframes
+		this.collisionObjects.forEach((object) => {
+			if (object.userData.sonarWireframe) {
+				this.scene.remove(object.userData.sonarWireframe);
+				delete object.userData.sonarWireframe;
+			}
+		});
+
+		if (this.searchTargets) {
+			this.searchTargets.forEach((target) => {
+				if (target.userData.sonarWireframe) {
+					this.scene.remove(target.userData.sonarWireframe);
+					delete target.userData.sonarWireframe;
+				}
+			});
+		}
 	}
 
 	initializeSonarSystem() {
@@ -974,80 +1236,39 @@ export class AUVLogic {
 	updateSonarScan() {
 		if (!this.sonarSystem.isActive || !this.auv) return;
 
+		// Simple visual sonar - just keep objects visible while sonar is active
+		// Remove old detections periodically
 		const currentTime = Date.now();
-
-		// Fire new sonar pulses at intervals
-		if (
-			currentTime - this.sonarSystem.lastPulseTime >=
-			this.sonarSystem.pulseInterval
-		) {
-			this.fireSonarPulse();
-			this.sonarSystem.lastPulseTime = currentTime;
-		}
-
-		// Update existing pulses
-		this.updateSonarPulses();
-
-		// Clean up old sonar data
-		this.cleanupOldSonarData(currentTime);
-
-		// Render sonar display
-		this.renderSonarDisplay();
-	}
-
-	fireSonarPulse() {
-		if (!this.auv) return;
-
-		// Create new sonar pulse
-		const pulse = {
-			position: this.auv.position.clone(),
-			radius: 0,
-			timestamp: Date.now(),
-			direction: this.auv.rotation.y, // Current AUV heading
-			id: Math.random(),
-		};
-
-		this.sonarSystem.pulses.push(pulse);
-		console.log(
-			`Fired sonar pulse from position:`,
-			pulse.position,
-			`Total collision objects: ${this.collisionObjects.length}`
+		this.sonarSystem.detectedObjects = this.sonarSystem.detectedObjects.filter(
+			(obj) => currentTime - obj.timestamp < this.sonarSystem.fadeTime
 		);
-
-		// Limit number of active pulses
-		if (this.sonarSystem.pulses.length > 5) {
-			this.sonarSystem.pulses.shift();
-		}
 	}
+
+	// Removed fireSonarPulse method - no longer using pulse system
 
 	updateSonarPulses() {
-		this.sonarSystem.pulses = this.sonarSystem.pulses.filter((pulse) => {
-			// Expand pulse radius
-			pulse.radius += this.sonarSystem.pulseSpeed;
-
-			// Check for collisions with objects as pulse expands
-			this.checkPulseCollisions(pulse);
-
-			// Remove pulse if it's beyond max range
-			return pulse.radius <= this.sonarSystem.maxPulseRange;
-		});
+		// Pulses disabled - clear any existing pulses
+		this.sonarSystem.pulses = [];
 	}
 
 	checkPulseCollisions(pulse) {
 		if (!this.auv) return;
 
-		// Cast rays in all directions from pulse center
-		const rayCount = 36; // 10-degree intervals (reduced for better performance)
-		const angleStep = (Math.PI * 2) / rayCount;
+		// Cast rays only in front of the AUV (forward arc)
+		const rayCount = 36; // Number of rays in the forward arc
+		const forwardArcAngle = Math.PI * 0.75; // 135 degrees forward arc (3/4 of PI)
+		const startAngle = -forwardArcAngle / 2; // Start from left side of arc
+		const angleStep = forwardArcAngle / rayCount;
 
 		for (let i = 0; i < rayCount; i++) {
-			const angle = i * angleStep;
+			// Calculate angle relative to forward direction
+			const relativeAngle = startAngle + i * angleStep;
 
-			// Calculate ray direction relative to AUV's rotation
+			// Create forward-facing direction vector
 			const rayDirection = new THREE.Vector3(
-				Math.cos(angle),
-				0,
-				Math.sin(angle)
+				Math.sin(relativeAngle), // X component for left/right
+				0, // Keep horizontal
+				Math.cos(relativeAngle) // Z component for forward/back
 			);
 
 			// Apply AUV's rotation to the ray direction
@@ -1068,7 +1289,7 @@ export class AUVLogic {
 
 				// Record hits that are within a reasonable range of the pulse
 				const pulseEdge = pulse.radius;
-				const hitTolerance = 3.0; // Increased tolerance
+				const hitTolerance = 2.0;
 
 				if (
 					distance >= pulseEdge - hitTolerance &&
@@ -1076,11 +1297,11 @@ export class AUVLogic {
 					distance <= this.sonarSystem.maxPulseRange
 				) {
 					// Store the angle relative to AUV's heading for proper display
-					const auvRelativeAngle = angle;
 					this.recordSonarReturn(
-						auvRelativeAngle,
+						relativeAngle,
 						distance,
 						hit.object,
+						hit.point, // Store the exact hit point
 						pulse.timestamp
 					);
 				}
@@ -1088,7 +1309,7 @@ export class AUVLogic {
 		}
 	}
 
-	recordSonarReturn(angle, distance, object, timestamp) {
+	recordSonarReturn(angle, distance, object, hitPoint, timestamp) {
 		// Convert angle to degrees for storage
 		const angleDeg = ((angle * 180) / Math.PI + 360) % 360;
 		const angleKey = Math.round(
@@ -1096,24 +1317,108 @@ export class AUVLogic {
 		);
 		const distanceKey = Math.round(distance);
 
-		const key = `${angleKey}_${distanceKey}`;
+		// Create unique key for the entire object
+		const key = `${object.uuid}`;
 
-		// Store sonar return data
+		// Store sonar return data with the entire object for hitbox visualization
 		const returnData = {
 			angle: angleDeg,
 			distance: distance,
 			timestamp: timestamp,
 			object: object,
+			hitPoint: hitPoint.clone(),
 			intensity: this.calculateReturnIntensity(object, distance),
-			type: object.userData?.type || "unknown",
+			type:
+				object.userData?.type ||
+				object.parent?.userData?.type ||
+				"unknown",
 		};
+
+		// Add sonar wireframe to the object temporarily
+		this.addSonarWireframe(object, timestamp);
 
 		this.sonarSystem.sonarData.set(key, returnData);
 		console.log(
-			`Sonar return recorded: ${returnData.type} at ${distance.toFixed(
-				1
-			)}m, angle ${angleDeg.toFixed(0)}°`
+			`Sonar detected: ${returnData.type} - hitbox visualization added`
 		);
+	}
+
+	addSonarWireframe(object, timestamp) {
+		// Remove existing sonar wireframe if any
+		if (object.userData.sonarWireframe) {
+			object.parent?.remove(object.userData.sonarWireframe) ||
+				this.scene.remove(object.userData.sonarWireframe);
+		}
+
+		// Calculate distance for intensity-based coloring
+		const distance = this.auv
+			? this.auv.position.distanceTo(object.position)
+			: 10;
+		const intensity = Math.max(
+			0.3,
+			1 - distance / this.sonarSystem.maxPulseRange
+		);
+
+		// Get realistic sonar colors based on object type and intensity
+		let wireframeColor = 0x00ff88; // Default fallback
+
+		switch (object.userData?.type || object.parent?.userData?.type) {
+			case "survivor":
+				// Survivors: bright red-orange
+				if (intensity > 0.7) {
+					wireframeColor = 0xff4400; // Bright red-orange
+				} else if (intensity > 0.4) {
+					wireframeColor = 0xff8800; // Orange
+				} else {
+					wireframeColor = 0xaa4400; // Dark orange
+				}
+				break;
+			case "building":
+			case "vehicle":
+				// Buildings/vehicles: yellow-orange
+				if (intensity > 0.7) {
+					wireframeColor = 0xffcc00; // Bright yellow
+				} else if (intensity > 0.4) {
+					wireframeColor = 0xff8800; // Orange
+				} else {
+					wireframeColor = 0xcc6600; // Dark orange
+				}
+				break;
+			case "debris":
+				// Debris: cyan-blue
+				if (intensity > 0.7) {
+					wireframeColor = 0x00ffff; // Bright cyan
+				} else if (intensity > 0.4) {
+					wireframeColor = 0x0088ff; // Blue-cyan
+				} else {
+					wireframeColor = 0x004488; // Dark blue
+				}
+				break;
+			default:
+				// Unknown objects: standard sonar progression (blue to yellow)
+				if (intensity > 0.7) {
+					wireframeColor = 0xffff00; // Bright yellow
+				} else if (intensity > 0.4) {
+					wireframeColor = 0x00ffaa; // Cyan-green
+				} else {
+					wireframeColor = 0x0066aa; // Dark blue
+				}
+				break;
+		}
+
+		const wireframe = new THREE.BoxHelper(object, wireframeColor);
+		wireframe.material.transparent = true;
+		wireframe.material.opacity = 0.8;
+		wireframe.userData = {
+			isSonarWireframe: true,
+			timestamp: timestamp,
+			parentObject: object,
+		};
+
+		// Add wireframe to scene
+		this.scene.add(wireframe);
+		object.userData.sonarWireframe = wireframe;
+		object.userData.sonarTimestamp = timestamp;
 	}
 
 	calculateReturnIntensity(object, distance) {
@@ -1147,54 +1452,471 @@ export class AUVLogic {
 	}
 
 	cleanupOldSonarData(currentTime) {
-		// Remove sonar data older than fade time
+		// Remove sonar data older than fade time and clean up wireframes
 		for (const [key, data] of this.sonarSystem.sonarData.entries()) {
 			if (currentTime - data.timestamp > this.sonarSystem.fadeTime) {
+				// Remove wireframe from the object
+				if (data.object.userData.sonarWireframe) {
+					this.scene.remove(data.object.userData.sonarWireframe);
+					delete data.object.userData.sonarWireframe;
+					delete data.object.userData.sonarTimestamp;
+				}
 				this.sonarSystem.sonarData.delete(key);
+			} else {
+				// Update wireframe opacity based on age
+				if (data.object.userData.sonarWireframe) {
+					const age = currentTime - data.timestamp;
+					const fadeProgress = age / this.sonarSystem.fadeTime;
+					const opacity = Math.max(0.1, 0.8 - fadeProgress);
+					data.object.userData.sonarWireframe.material.opacity =
+						opacity;
+				}
 			}
 		}
 	}
 
 	renderSonarDisplay() {
-		if (!this.sonarSystem.ctx || !this.sonarSystem.isActive) return;
-
-		const ctx = this.sonarSystem.ctx;
-		const canvas = this.sonarSystem.canvas;
-
-		// Set sonar background
-		ctx.fillStyle = "#000811";
-		ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-		// Calculate center and scale for polar display
-		const centerX = canvas.width / 2;
-		const centerY = canvas.height / 2;
-		const maxRadius = Math.min(centerX, centerY) * 0.8;
-		const scale = maxRadius / this.sonarSystem.maxPulseRange;
-
-		// Draw active sonar pulses
-		this.drawSonarPulses(ctx, centerX, centerY, scale);
-
-		// Draw sonar returns (the accumulated data)
-		this.drawSonarReturns(ctx, centerX, centerY, scale);
-
-		// Draw sonar grid
-		this.drawSonarGrid(ctx, centerX, centerY, maxRadius);
-
-		// Draw sonar info
-		this.drawSonarInfo(ctx, canvas);
+		// No radar display - only wireframes in 3D scene
+		return;
 	}
 
-	drawSonarPulses(ctx, centerX, centerY, scale) {
+	drawSonarSweepLines(ctx, canvas) {
+		if (!this.auv) return;
+
 		ctx.save();
 
+		// Get AUV screen position
+		const auvPos = this.worldToScreen(this.auv.position);
+		if (auvPos.z > 1) return; // Behind camera
+
+		// Draw forward-facing sonar sweep lines
+		const currentTime = Date.now();
+		const sweepCount = 5; // More sweep lines for forward scanning
+		const forwardArcAngle = Math.PI * 0.75; // 135 degree forward arc
+		const sweepLength = 300;
+
+		// Get AUV's forward direction
+		const forward = new THREE.Vector3(0, 0, 1);
+		forward.applyQuaternion(this.auv.quaternion);
+
+		// Calculate base angle for AUV's forward direction
+		const baseAngle = Math.atan2(forward.x, forward.z);
+
+		for (let i = 0; i < sweepCount; i++) {
+			// Create sweeping motion within the forward arc
+			const sweepProgress = (currentTime * 0.002 + i * 0.3) % 2; // Slower sweep
+			let sweepAngle;
+
+			if (sweepProgress <= 1) {
+				// Sweep from left to right
+				sweepAngle =
+					baseAngle +
+					-forwardArcAngle / 2 +
+					sweepProgress * forwardArcAngle;
+			} else {
+				// Sweep from right to left
+				sweepAngle =
+					baseAngle +
+					forwardArcAngle / 2 -
+					(sweepProgress - 1) * forwardArcAngle;
+			}
+
+			// Calculate sweep line end point
+			const endX = auvPos.x + Math.sin(sweepAngle) * sweepLength;
+			const endY = auvPos.y - Math.cos(sweepAngle) * sweepLength; // Negative for correct screen orientation
+
+			// Draw sweep line with fade
+			const alpha = 0.4 - i * 0.05;
+			ctx.strokeStyle = `rgba(0, 255, 136, ${alpha})`;
+			ctx.lineWidth = 2;
+
+			ctx.beginPath();
+			ctx.moveTo(auvPos.x, auvPos.y);
+			ctx.lineTo(endX, endY);
+			ctx.stroke();
+		}
+
+		// Draw forward arc boundaries
+		ctx.strokeStyle = `rgba(0, 255, 136, 0.2)`;
+		ctx.lineWidth = 1;
+
+		// Left boundary
+		const leftAngle = baseAngle - forwardArcAngle / 2;
+		ctx.beginPath();
+		ctx.moveTo(auvPos.x, auvPos.y);
+		ctx.lineTo(
+			auvPos.x + Math.sin(leftAngle) * sweepLength * 0.8,
+			auvPos.y - Math.cos(leftAngle) * sweepLength * 0.8
+		);
+		ctx.stroke();
+
+		// Right boundary
+		const rightAngle = baseAngle + forwardArcAngle / 2;
+		ctx.beginPath();
+		ctx.moveTo(auvPos.x, auvPos.y);
+		ctx.lineTo(
+			auvPos.x + Math.sin(rightAngle) * sweepLength * 0.8,
+			auvPos.y - Math.cos(rightAngle) * sweepLength * 0.8
+		);
+		ctx.stroke();
+
+		ctx.restore();
+	}
+
+	drawSonarObjectShapes(ctx, canvas) {
+		// No longer need to draw on canvas - using actual 3D wireframes instead
+		// The wireframes are added directly to the 3D scene in recordSonarReturn
+		return;
+	}
+
+	drawFullScaleObject(ctx, object, screenPos, color, alpha) {
+		ctx.save();
+		ctx.strokeStyle = color;
+		ctx.fillStyle = color.replace(/[\d\.]+\)$/g, `${alpha * 0.4})`);
+		ctx.lineWidth = 2;
+
+		// Calculate object's actual bounding box
+		const bbox = new THREE.Box3().setFromObject(object);
+		const size = bbox.getSize(new THREE.Vector3());
+
+		// Calculate proper scale factor for realistic size on screen
+		const distance = this.camera.position.distanceTo(object.position) || 1;
+		const scaleFactor = 200 / distance; // Larger scale for full visibility
+		const width = size.x * scaleFactor;
+		const height = size.z * scaleFactor;
+
+		// Draw based on object type with full scale
+		switch (object.userData?.type || object.parent?.userData?.type) {
+			case "building":
+				// Draw full building rectangle
+				ctx.fillRect(
+					screenPos.x - width / 2,
+					screenPos.y - height / 2,
+					width,
+					height
+				);
+				ctx.strokeRect(
+					screenPos.x - width / 2,
+					screenPos.y - height / 2,
+					width,
+					height
+				);
+				break;
+
+			case "vehicle":
+				// Draw full vehicle as rounded rectangle
+				const radius = Math.min(width, height) * 0.2;
+				this.drawRoundedRect(
+					ctx,
+					screenPos.x - width / 2,
+					screenPos.y - height / 2,
+					width,
+					height,
+					radius
+				);
+				ctx.fill();
+				ctx.stroke();
+				break;
+
+			case "survivor":
+				// Draw survivor as large circle
+				const survivorRadius = Math.max(
+					20,
+					Math.max(width, height) / 2
+				);
+				ctx.beginPath();
+				ctx.arc(
+					screenPos.x,
+					screenPos.y,
+					survivorRadius,
+					0,
+					Math.PI * 2
+				);
+				ctx.fill();
+				ctx.stroke();
+
+				// Draw cross
+				ctx.strokeStyle = "rgba(255, 255, 255, 0.9)";
+				ctx.lineWidth = 4;
+				ctx.beginPath();
+				ctx.moveTo(screenPos.x - 10, screenPos.y);
+				ctx.lineTo(screenPos.x + 10, screenPos.y);
+				ctx.moveTo(screenPos.x, screenPos.y - 10);
+				ctx.lineTo(screenPos.x, screenPos.y + 10);
+				ctx.stroke();
+				break;
+
+			case "debris":
+			case "floating_debris":
+				// Draw debris as irregular polygon
+				const debrisSize = Math.max(15, Math.max(width, height) / 2);
+				ctx.beginPath();
+				for (let i = 0; i < 8; i++) {
+					const angle = (i / 8) * Math.PI * 2;
+					const radius = debrisSize * (0.7 + Math.sin(i * 2) * 0.3);
+					const x = screenPos.x + Math.cos(angle) * radius;
+					const y = screenPos.y + Math.sin(angle) * radius;
+					if (i === 0) ctx.moveTo(x, y);
+					else ctx.lineTo(x, y);
+				}
+				ctx.closePath();
+				ctx.fill();
+				ctx.stroke();
+				break;
+
+			default:
+				// Default - large circle
+				const defaultRadius = Math.max(15, Math.max(width, height) / 2);
+				ctx.beginPath();
+				ctx.arc(
+					screenPos.x,
+					screenPos.y,
+					defaultRadius,
+					0,
+					Math.PI * 2
+				);
+				ctx.fill();
+				ctx.stroke();
+				break;
+		}
+
+		ctx.restore();
+	}
+
+	drawRoundedRect(ctx, x, y, width, height, radius) {
+		ctx.beginPath();
+		ctx.moveTo(x + radius, y);
+		ctx.lineTo(x + width - radius, y);
+		ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+		ctx.lineTo(x + width, y + height - radius);
+		ctx.quadraticCurveTo(
+			x + width,
+			y + height,
+			x + width - radius,
+			y + height
+		);
+		ctx.lineTo(x + radius, y + height);
+		ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+		ctx.lineTo(x, y + radius);
+		ctx.quadraticCurveTo(x, y, x + radius, y);
+		ctx.closePath();
+	}
+
+	drawSonarHitPoint(ctx, screenPos, color, alpha, intensity, type) {
+		ctx.save();
+
+		// Size based on intensity and type
+		let baseSize = 2 + intensity * 4;
+		if (type === "survivor") baseSize *= 1.5; // Make survivors more visible
+		if (type === "building") baseSize *= 1.2; // Buildings slightly larger
+
+		// Draw hit point with glow effect
+		ctx.shadowColor = color;
+		ctx.shadowBlur = 8 * alpha;
+		ctx.fillStyle = color;
+
+		// Main hit point
+		ctx.beginPath();
+		ctx.arc(screenPos.x, screenPos.y, baseSize, 0, Math.PI * 2);
+		ctx.fill();
+
+		// Draw additional visual indicator based on type
+		ctx.shadowBlur = 0;
+		ctx.strokeStyle = color;
+		ctx.lineWidth = 1;
+
+		switch (type) {
+			case "building":
+				// Square outline for buildings
+				ctx.strokeRect(
+					screenPos.x - baseSize - 2,
+					screenPos.y - baseSize - 2,
+					(baseSize + 2) * 2,
+					(baseSize + 2) * 2
+				);
+				break;
+			case "vehicle":
+				// Diamond shape for vehicles
+				ctx.beginPath();
+				ctx.moveTo(screenPos.x, screenPos.y - baseSize - 3);
+				ctx.lineTo(screenPos.x + baseSize + 3, screenPos.y);
+				ctx.lineTo(screenPos.x, screenPos.y + baseSize + 3);
+				ctx.lineTo(screenPos.x - baseSize - 3, screenPos.y);
+				ctx.closePath();
+				ctx.stroke();
+				break;
+			case "survivor":
+				// Cross for survivors
+				ctx.beginPath();
+				ctx.moveTo(screenPos.x - baseSize - 3, screenPos.y);
+				ctx.lineTo(screenPos.x + baseSize + 3, screenPos.y);
+				ctx.moveTo(screenPos.x, screenPos.y - baseSize - 3);
+				ctx.lineTo(screenPos.x, screenPos.y + baseSize + 3);
+				ctx.stroke();
+				break;
+			case "debris":
+				// Irregular outline for debris
+				ctx.beginPath();
+				for (let i = 0; i < 6; i++) {
+					const angle = (i / 6) * Math.PI * 2;
+					const radius = baseSize + 2 + Math.sin(i) * 2;
+					const x = screenPos.x + Math.cos(angle) * radius;
+					const y = screenPos.y + Math.sin(angle) * radius;
+					if (i === 0) ctx.moveTo(x, y);
+					else ctx.lineTo(x, y);
+				}
+				ctx.closePath();
+				ctx.stroke();
+				break;
+		}
+
+		ctx.restore();
+	}
+
+	drawObjectOutline(ctx, object, screenPos, color, alpha) {
+		ctx.save();
+		ctx.strokeStyle = color;
+		ctx.fillStyle = color.replace(/[\d\.]+\)$/g, `${alpha * 0.2})`); // Semi-transparent fill
+		ctx.lineWidth = 2;
+
+		// Get object's bounding box for size reference
+		const bbox = new THREE.Box3().setFromObject(object);
+		const size = bbox.getSize(new THREE.Vector3());
+
+		// Scale factor for screen space
+		const scaleFactor =
+			100 / (this.camera.position.distanceTo(object.position) || 1);
+		const width = size.x * scaleFactor;
+		const height = size.z * scaleFactor; // Use Z for width in screen space
+
+		switch (object.userData?.type) {
+			case "building":
+				// Draw building as rectangle
+				ctx.strokeRect(
+					screenPos.x - width / 2,
+					screenPos.y - height / 2,
+					width,
+					height
+				);
+				ctx.fillRect(
+					screenPos.x - width / 2,
+					screenPos.y - height / 2,
+					width,
+					height
+				);
+				break;
+
+			case "vehicle":
+				// Draw vehicle as rounded rectangle
+				const radius = Math.min(width, height) * 0.2;
+				this.drawRoundedRect(
+					ctx,
+					screenPos.x - width / 2,
+					screenPos.y - height / 2,
+					width,
+					height,
+					radius
+				);
+				break;
+
+			case "survivor":
+				// Draw survivor as circle with cross
+				const survivorRadius = Math.max(8, width / 2);
+				ctx.beginPath();
+				ctx.arc(
+					screenPos.x,
+					screenPos.y,
+					survivorRadius,
+					0,
+					Math.PI * 2
+				);
+				ctx.stroke();
+				ctx.fill();
+
+				// Draw cross inside
+				ctx.strokeStyle = "rgba(255, 255, 255, 0.8)";
+				ctx.lineWidth = 2;
+				ctx.beginPath();
+				ctx.moveTo(screenPos.x - 4, screenPos.y);
+				ctx.lineTo(screenPos.x + 4, screenPos.y);
+				ctx.moveTo(screenPos.x, screenPos.y - 4);
+				ctx.lineTo(screenPos.x, screenPos.y + 4);
+				ctx.stroke();
+				break;
+
+			case "debris":
+				// Draw debris as irregular shape
+				const debrisSize = Math.max(6, width / 2);
+				ctx.beginPath();
+				for (let i = 0; i < 6; i++) {
+					const angle = (i / 6) * Math.PI * 2;
+					const radius = debrisSize * (0.7 + Math.random() * 0.3);
+					const x = screenPos.x + Math.cos(angle) * radius;
+					const y = screenPos.y + Math.sin(angle) * radius;
+					if (i === 0) ctx.moveTo(x, y);
+					else ctx.lineTo(x, y);
+				}
+				ctx.closePath();
+				ctx.stroke();
+				ctx.fill();
+				break;
+
+			default:
+				// Draw unknown objects as diamonds
+				const diamondSize = Math.max(8, width / 2);
+				ctx.beginPath();
+				ctx.moveTo(screenPos.x, screenPos.y - diamondSize);
+				ctx.lineTo(screenPos.x + diamondSize, screenPos.y);
+				ctx.lineTo(screenPos.x, screenPos.y + diamondSize);
+				ctx.lineTo(screenPos.x - diamondSize, screenPos.y);
+				ctx.closePath();
+				ctx.stroke();
+				ctx.fill();
+				break;
+		}
+
+		ctx.restore();
+	}
+
+	drawRoundedRect(ctx, x, y, width, height, radius) {
+		ctx.beginPath();
+		ctx.moveTo(x + radius, y);
+		ctx.lineTo(x + width - radius, y);
+		ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+		ctx.lineTo(x + width, y + height - radius);
+		ctx.quadraticCurveTo(
+			x + width,
+			y + height,
+			x + width - radius,
+			y + height
+		);
+		ctx.lineTo(x + radius, y + height);
+		ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+		ctx.lineTo(x, y + radius);
+		ctx.quadraticCurveTo(x, y, x + radius, y);
+		ctx.closePath();
+		ctx.stroke();
+		ctx.fill();
+	}
+
+	drawSonarPulseRings(ctx, canvas) {
+		if (!this.auv) return;
+
+		ctx.save();
+
+		// Get AUV screen position for pulse center
+		const auvPos = this.worldToScreen(this.auv.position);
+		if (auvPos.z > 1) return;
+
+		// Draw expanding pulse rings
 		this.sonarSystem.pulses.forEach((pulse) => {
-			const pulseRadius = pulse.radius * scale;
+			const distance = pulse.radius;
+			const screenRadius = distance * 10; // Scale to screen space
 
-			// Only draw if pulse is visible
-			if (pulseRadius < 1) return;
+			if (screenRadius < 5) return;
 
-			// Draw expanding pulse ring
-			ctx.strokeStyle = this.sonarSystem.pulseColor;
+			// Pulse ring
+			ctx.strokeStyle = "rgba(0, 255, 136, 0.6)";
 			ctx.lineWidth = 2;
 			ctx.globalAlpha = 0.8;
 
@@ -1203,9 +1925,9 @@ export class AUVLogic {
 			ctx.stroke();
 
 			// Draw pulse fade effect (only if radius is large enough)
-			if (pulseRadius > 10) {
-				const innerRadius = Math.max(0, pulseRadius - 5);
-				const outerRadius = pulseRadius + 5;
+			if (screenRadius > 20) {
+				const innerRadius = Math.max(0, screenRadius - 5);
+				const outerRadius = screenRadius + 5;
 
 				const gradient = ctx.createRadialGradient(
 					centerX,
@@ -1230,6 +1952,36 @@ export class AUVLogic {
 
 		ctx.restore();
 	}
+
+	drawSonarInfoOverlay(ctx, canvas) {
+		ctx.save();
+
+		// Sonar status info with realistic sonar amber color
+		ctx.fillStyle = "rgba(255, 200, 100, 0.9)";
+		ctx.font = "16px monospace";
+		ctx.fillText("SONAR ACTIVE - SHOWING ALL HITBOXES", 20, 30);
+
+		ctx.font = "12px monospace";
+		ctx.fillText(`Total objects: ${this.collisionObjects.length}`, 20, 50);
+		if (this.searchTargets) {
+			ctx.fillText(`Survivors: ${this.searchTargets.length}`, 20, 70);
+		}
+
+		ctx.restore();
+	}
+
+	worldToScreen(worldPos) {
+		// Convert 3D world position to 2D screen coordinates
+		const vector = worldPos.clone().project(this.camera);
+
+		const canvas = this.sonarSystem.canvas || this.canvas;
+		const x = ((vector.x + 1) * canvas.width) / 2;
+		const y = ((-vector.y + 1) * canvas.height) / 2;
+
+		return { x, y, z: vector.z };
+	}
+
+	// Removed drawSonarPulses method - no longer using pulse system
 
 	drawSonarReturns(ctx, centerX, centerY, scale) {
 		const currentTime = Date.now();
@@ -1611,6 +2363,9 @@ export class AUVLogic {
 		let headingRad = this.auv.rotation.z;
 		let newHeading = ((headingRad * 180) / Math.PI + 360) % 360;
 
+		// Apply compass error from magnetic interference
+		newHeading += this.compassErrorOffset;
+
 		// Smooth heading changes to prevent jumps
 		const headingDiff = newHeading - this.currentHeading;
 		if (Math.abs(headingDiff) > 180) {
@@ -1692,6 +2447,7 @@ export class AUVLogic {
 		this.updateHitboxes(); // Update hitbox positions
 		this.applyCameraModeEffects(); // Apply visual effects based on camera mode
 		this.updateSonarScan(); // Update sonar scanning
+		this.updateRandomEvents(); // Update random events system
 
 		if (this.renderer && this.scene && this.camera) {
 			this.renderer.render(this.scene, this.camera);
@@ -1702,8 +2458,7 @@ export class AUVLogic {
 		// Apply different visual effects based on camera mode
 		this.scene.traverse((object) => {
 			if (object.isMesh && object.material && object.material.color) {
-				// Only process materials that have a color property
-				// Store original material properties if not already stored
+				// Store original material if not already stored
 				if (!object.userData.originalMaterial) {
 					object.userData.originalMaterial = {
 						color: object.material.color.clone(),
@@ -1730,8 +2485,15 @@ export class AUVLogic {
 						}
 						object.material.opacity =
 							object.userData.originalMaterial.opacity;
+						// Restore scene background and fog for optical mode
+						this.scene.background = new THREE.Color(0x000811);
+						this.renderer.setClearColor(0x000811, 1.0);
+						if (this.scene.fog) {
+							this.scene.fog.color.setHex(0x006994);
+							this.scene.fog.near = 1;
+							this.scene.fog.far = 50;
+						}
 						break;
-
 					case "sonar":
 						// Sonar view - green monochrome with distance-based intensity
 						if (this.auv && object !== this.auv) {
@@ -1750,6 +2512,9 @@ export class AUVLogic {
 						}
 						break;
 				}
+
+				// Force material update
+				object.material.needsUpdate = true;
 			}
 		});
 	}
@@ -2018,5 +2783,327 @@ export class AUVLogic {
 
 	getCollisionData() {
 		return this.collisionData;
+	}
+
+	// Random Events System
+	updateRandomEvents() {
+		const currentTime = Date.now();
+
+		// Check if an event is currently active
+		if (this.randomEvents.active) {
+			const event = this.randomEvents.active;
+			const eventConfig = this.randomEvents.effects[event.type];
+
+			// Check if event should end
+			if (currentTime - event.startTime >= eventConfig.duration) {
+				this.endRandomEvent();
+			} else {
+				this.applyEventEffects(event.type, eventConfig);
+			}
+		} else {
+			// Try to start a new event
+			if (
+				currentTime - this.randomEvents.lastEventTime >=
+				this.randomEvents.eventCooldown
+			) {
+				// Random chance to start an event (10% chance per second)
+				if (Math.random() < 0.002) {
+					// Adjusted for 60fps
+					this.startRandomEvent();
+				}
+			}
+		}
+	}
+
+	startRandomEvent() {
+		const eventTypes = this.randomEvents.eventTypes;
+		const randomType =
+			eventTypes[Math.floor(Math.random() * eventTypes.length)];
+		const eventConfig = this.randomEvents.effects[randomType];
+
+		// Reset duration for each event instance
+		eventConfig.duration = Math.random() * 30000 + 30000; // 30-60 seconds
+
+		this.randomEvents.active = {
+			type: randomType,
+			startTime: Date.now(),
+			intensity: Math.random() * 0.5 + 0.5, // 0.5 to 1.0 intensity
+		};
+
+		console.log(
+			`Random Event Started: ${eventConfig.name} - ${eventConfig.description}`
+		);
+
+		// Initialize event-specific effects
+		this.initializeEventEffects(randomType);
+	}
+
+	initializeEventEffects(eventType) {
+		const eventConfig = this.randomEvents.effects[eventType];
+		const event = this.randomEvents.active;
+
+		switch (eventType) {
+			case "highCurrent":
+				// Generate random current direction and strength
+				const angle = Math.random() * Math.PI * 2;
+				const strength = 0.02 * event.intensity;
+				eventConfig.force.set(
+					Math.cos(angle) * strength,
+					(Math.random() - 0.5) * strength * 0.5,
+					Math.sin(angle) * strength
+				);
+				break;
+
+			case "lowVisibility":
+				// Store original fog settings
+				eventConfig.originalFog = {
+					near: this.scene.fog ? this.scene.fog.near : 1,
+					far: this.scene.fog ? this.scene.fog.far : 50,
+				};
+				break;
+
+			case "equipment_malfunction":
+				// Randomly select which system to affect
+				const systems = ["sonar", "navigation", "propulsion", "lights"];
+				eventConfig.systemAffected =
+					systems[Math.floor(Math.random() * systems.length)];
+				break;
+		}
+	}
+
+	applyEventEffects(eventType, eventConfig) {
+		const event = this.randomEvents.active;
+
+		switch (eventType) {
+			case "highCurrent":
+				// Apply current force to AUV movement
+				if (this.auv) {
+					this.auv.position.add(eventConfig.force);
+				}
+				break;
+
+			case "lowVisibility":
+				// Reduce visibility with fog
+				if (this.scene.fog) {
+					this.scene.fog.near = 0.5;
+					this.scene.fog.far =
+						15 * (1 - eventConfig.fogDensity * event.intensity);
+				}
+				break;
+
+			case "thermalLayer":
+				// Add interference to sonar readings
+				if (this.sonarSystem.isActive) {
+					// Add random noise to sonar detections
+					this.addSonarInterference(
+						eventConfig.sonarInterference * event.intensity
+					);
+				}
+				break;
+
+			case "magneticInterference":
+				// Add error to heading calculations
+				this.compassErrorOffset =
+					(Math.random() - 0.5) *
+					eventConfig.compassError *
+					event.intensity;
+				break;
+
+			case "equipment_malfunction":
+				// Apply system-specific malfunctions
+				this.applySystemMalfunction(
+					eventConfig.systemAffected,
+					event.intensity
+				);
+				break;
+
+			case "marine_life_interference":
+				// Add biological noise to sonar
+				if (this.sonarSystem.isActive) {
+					this.addBiologicalNoise(
+						eventConfig.sonarNoise * event.intensity
+					);
+				}
+				break;
+
+			case "underwater_storm":
+				// Apply turbulence to movement
+				if (this.auv) {
+					const turbulence =
+						eventConfig.turbulence * event.intensity * 0.03;
+					this.auv.position.x += (Math.random() - 0.5) * turbulence;
+					this.auv.position.z += (Math.random() - 0.5) * turbulence;
+					this.auv.rotation.y +=
+						(Math.random() - 0.5) * turbulence * 0.1;
+				}
+				break;
+		}
+	}
+
+	endRandomEvent() {
+		if (!this.randomEvents.active) return;
+
+		const eventType = this.randomEvents.active.type;
+		const eventConfig = this.randomEvents.effects[eventType];
+
+		// Clean up event effects
+		switch (eventType) {
+			case "lowVisibility":
+				// Restore original fog settings
+				if (this.scene.fog && eventConfig.originalFog) {
+					this.scene.fog.near = eventConfig.originalFog.near;
+					this.scene.fog.far = eventConfig.originalFog.far;
+				}
+				break;
+
+			case "magneticInterference":
+				this.compassErrorOffset = 0;
+				break;
+		}
+
+		console.log(`Random Event Ended: ${eventConfig.name}`);
+		this.randomEvents.lastEventTime = Date.now();
+		this.randomEvents.active = null;
+	}
+
+	addSonarInterference(intensity) {
+		// Add false sonar returns
+		if (Math.random() < intensity * 0.1) {
+			const angle = Math.random() * Math.PI * 2;
+			const distance = Math.random() * 30 + 10;
+			const falseReturn = {
+				position: new THREE.Vector3(
+					Math.cos(angle) * distance,
+					this.auv.position.y + (Math.random() - 0.5) * 5,
+					Math.sin(angle) * distance
+				),
+				type: "interference",
+				timestamp: Date.now(),
+			};
+			this.sonarSystem.detectedObjects.push(falseReturn);
+		}
+	}
+
+	addBiologicalNoise(intensity) {
+		// Simulate marine life interference with visual effects
+		if (Math.random() < intensity * 0.02) {
+			// Create temporary visual marine life objects
+			const count = Math.floor(Math.random() * 3) + 1;
+			for (let i = 0; i < count; i++) {
+				const angle = Math.random() * Math.PI * 2;
+				const distance = Math.random() * 30 + 10;
+				
+				// Create a temporary marine life object
+				const marineLifeGeometry = new THREE.SphereGeometry(0.5, 8, 6);
+				const marineLifeMaterial = new THREE.MeshBasicMaterial({
+					color: 0x004488,
+					transparent: true,
+					opacity: 0.6
+				});
+				const marineLife = new THREE.Mesh(marineLifeGeometry, marineLifeMaterial);
+				
+				marineLife.position.set(
+					this.auv.position.x + Math.cos(angle) * distance,
+					this.auv.position.y + (Math.random() - 0.5) * 5,
+					this.auv.position.z + Math.sin(angle) * distance
+				);
+				
+				marineLife.userData = {
+					type: "marine_life",
+					timestamp: Date.now(),
+					isTemporary: true
+				};
+				
+				this.scene.add(marineLife);
+				
+				// Animate and remove after a short time
+				const animationDuration = 3000 + Math.random() * 2000; // 3-5 seconds
+				const startTime = Date.now();
+				
+				const animateMarineLife = () => {
+					const elapsed = Date.now() - startTime;
+					if (elapsed < animationDuration) {
+						// Move the marine life slightly
+						marineLife.position.x += (Math.random() - 0.5) * 0.1;
+						marineLife.position.z += (Math.random() - 0.5) * 0.1;
+						marineLife.rotation.y += 0.02;
+						
+						// Fade out in the last second
+						if (elapsed > animationDuration - 1000) {
+							const fadeProgress = (elapsed - (animationDuration - 1000)) / 1000;
+							marineLife.material.opacity = 0.6 * (1 - fadeProgress);
+						}
+						
+						requestAnimationFrame(animateMarineLife);
+					} else {
+						// Remove the marine life object
+						this.scene.remove(marineLife);
+						marineLife.geometry.dispose();
+						marineLife.material.dispose();
+					}
+				};
+				
+				animateMarineLife();
+			}
+		}
+	}
+
+	applySystemMalfunction(system, intensity) {
+		switch (system) {
+			case "sonar":
+				// Reduce sonar effectiveness
+				if (Math.random() < intensity * 0.02) {
+					this.sonarSystem.isActive = false;
+					setTimeout(() => {
+						this.sonarSystem.isActive = true;
+					}, 1000);
+				}
+				break;
+
+			case "navigation":
+				// Add navigation errors
+				this.compassErrorOffset =
+					(Math.random() - 0.5) * 20 * intensity;
+				break;
+
+			case "propulsion":
+				// Reduce movement efficiency
+				this.speed *= 1 - intensity * 0.3;
+				break;
+
+			case "lights":
+				// Flicker lighting
+				if (Math.random() < intensity * 0.1) {
+					this.scene.traverse((object) => {
+						if (object.isLight) {
+							object.intensity *= 0.5;
+							setTimeout(() => {
+								object.intensity *= 2;
+							}, 200);
+						}
+					});
+				}
+				break;
+		}
+	}
+
+	// Public methods for accessing random events
+	getCurrentEvent() {
+		return this.randomEvents.active;
+	}
+
+	getEventDescription() {
+		if (!this.randomEvents.active) return null;
+		const eventConfig =
+			this.randomEvents.effects[this.randomEvents.active.type];
+		return {
+			name: eventConfig.name,
+			description: eventConfig.description,
+			timeRemaining: Math.max(
+				0,
+				eventConfig.duration -
+					(Date.now() - this.randomEvents.active.startTime)
+			),
+		};
 	}
 }
