@@ -155,15 +155,12 @@ export class AUVLogic {
 			},
 		};
 
-		console.log("AUV Logic constructor called");
 		this.init();
 		this.setupEventListeners();
 		this.animate();
 	}
 
 	init() {
-		console.log("Initializing AUV Logic...");
-
 		// Create scene
 		this.scene = new THREE.Scene();
 
@@ -1066,7 +1063,6 @@ export class AUVLogic {
 			if (this.isPointerLocked) {
 				document.exitPointerLock();
 			}
-			console.log("AUV view enabled");
 		}
 	}
 
@@ -1074,10 +1070,6 @@ export class AUVLogic {
 		const modes = ["optical", "sonar"];
 		const currentIndex = modes.indexOf(this.cameraMode);
 		this.cameraMode = modes[(currentIndex + 1) % modes.length];
-
-		console.log(
-			`Camera mode switched to: ${this.cameraMode.toUpperCase()}`
-		);
 
 		// Activate/deactivate sonar system
 		this.sonarSystem.isActive = this.cameraMode === "sonar";
@@ -1239,9 +1231,10 @@ export class AUVLogic {
 		// Simple visual sonar - just keep objects visible while sonar is active
 		// Remove old detections periodically
 		const currentTime = Date.now();
-		this.sonarSystem.detectedObjects = this.sonarSystem.detectedObjects.filter(
-			(obj) => currentTime - obj.timestamp < this.sonarSystem.fadeTime
-		);
+		this.sonarSystem.detectedObjects =
+			this.sonarSystem.detectedObjects.filter(
+				(obj) => currentTime - obj.timestamp < this.sonarSystem.fadeTime
+			);
 	}
 
 	// Removed fireSonarPulse method - no longer using pulse system
@@ -1338,9 +1331,6 @@ export class AUVLogic {
 		this.addSonarWireframe(object, timestamp);
 
 		this.sonarSystem.sonarData.set(key, returnData);
-		console.log(
-			`Sonar detected: ${returnData.type} - hitbox visualization added`
-		);
 	}
 
 	addSonarWireframe(object, timestamp) {
@@ -2537,11 +2527,6 @@ export class AUVLogic {
 		for (let obj of this.collisionObjects) {
 			const objBoundingBox = new THREE.Box3().setFromObject(obj);
 			if (this.auvBoundingBox.intersectsBox(objBoundingBox)) {
-				console.log(
-					"Collision detected with:",
-					obj.userData?.type || "unknown object"
-				);
-
 				// Calculate collision direction and update damage status
 				this.handleCollisionEvent(obj, originalPosition, newPosition);
 
@@ -2685,8 +2670,6 @@ export class AUVLogic {
 						target.userData.beacon.material.color.setHex(0x00ff00);
 					}
 
-					console.log(`Survivor ${target.userData.id} found!`);
-
 					// Play a sound effect or trigger GUI notification here
 					this.onSurvivorFound(target.userData.id);
 				}
@@ -2708,9 +2691,6 @@ export class AUVLogic {
 		const foundCount = this.searchTargets.filter(
 			(t) => t.userData.found
 		).length;
-		console.log(
-			`Search progress: ${foundCount}/${this.searchTargets.length} survivors found`
-		);
 	}
 
 	animateFloatingDebris() {
@@ -2829,10 +2809,6 @@ export class AUVLogic {
 			startTime: Date.now(),
 			intensity: Math.random() * 0.5 + 0.5, // 0.5 to 1.0 intensity
 		};
-
-		console.log(
-			`Random Event Started: ${eventConfig.name} - ${eventConfig.description}`
-		);
 
 		// Initialize event-specific effects
 		this.initializeEventEffects(randomType);
@@ -2961,7 +2937,6 @@ export class AUVLogic {
 				break;
 		}
 
-		console.log(`Random Event Ended: ${eventConfig.name}`);
 		this.randomEvents.lastEventTime = Date.now();
 		this.randomEvents.active = null;
 	}
@@ -2992,34 +2967,37 @@ export class AUVLogic {
 			for (let i = 0; i < count; i++) {
 				const angle = Math.random() * Math.PI * 2;
 				const distance = Math.random() * 30 + 10;
-				
+
 				// Create a temporary marine life object
 				const marineLifeGeometry = new THREE.SphereGeometry(0.5, 8, 6);
 				const marineLifeMaterial = new THREE.MeshBasicMaterial({
 					color: 0x004488,
 					transparent: true,
-					opacity: 0.6
+					opacity: 0.6,
 				});
-				const marineLife = new THREE.Mesh(marineLifeGeometry, marineLifeMaterial);
-				
+				const marineLife = new THREE.Mesh(
+					marineLifeGeometry,
+					marineLifeMaterial
+				);
+
 				marineLife.position.set(
 					this.auv.position.x + Math.cos(angle) * distance,
 					this.auv.position.y + (Math.random() - 0.5) * 5,
 					this.auv.position.z + Math.sin(angle) * distance
 				);
-				
+
 				marineLife.userData = {
 					type: "marine_life",
 					timestamp: Date.now(),
-					isTemporary: true
+					isTemporary: true,
 				};
-				
+
 				this.scene.add(marineLife);
-				
+
 				// Animate and remove after a short time
 				const animationDuration = 3000 + Math.random() * 2000; // 3-5 seconds
 				const startTime = Date.now();
-				
+
 				const animateMarineLife = () => {
 					const elapsed = Date.now() - startTime;
 					if (elapsed < animationDuration) {
@@ -3027,13 +3005,15 @@ export class AUVLogic {
 						marineLife.position.x += (Math.random() - 0.5) * 0.1;
 						marineLife.position.z += (Math.random() - 0.5) * 0.1;
 						marineLife.rotation.y += 0.02;
-						
+
 						// Fade out in the last second
 						if (elapsed > animationDuration - 1000) {
-							const fadeProgress = (elapsed - (animationDuration - 1000)) / 1000;
-							marineLife.material.opacity = 0.6 * (1 - fadeProgress);
+							const fadeProgress =
+								(elapsed - (animationDuration - 1000)) / 1000;
+							marineLife.material.opacity =
+								0.6 * (1 - fadeProgress);
 						}
-						
+
 						requestAnimationFrame(animateMarineLife);
 					} else {
 						// Remove the marine life object
@@ -3042,7 +3022,7 @@ export class AUVLogic {
 						marineLife.material.dispose();
 					}
 				};
-				
+
 				animateMarineLife();
 			}
 		}
