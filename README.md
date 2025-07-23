@@ -1,108 +1,129 @@
-# 🌊 HYDROBOT Simulation
+# 🌊 HYDROBOT Pathfinding Simulator
 
-A real-time flood rescue detection robot simulation using thermal imaging sensors. This project simulates the HYDROBOT system described in your research documentation - a submersible robot designed to locate victims in flooded areas using thermal imaging technology.
+A real-time underwater rescue detection robot simulation featuring advanced sonar navigation and thermal imaging sensors. This project simulates the HYDROBOT system - a submersible autonomous underwater vehicle (AUV) designed to locate victims in flooded areas using cutting-edge sensor technology and intelligent pathfinding algorithms.
 
 ## Features
 
 ### 🤖 Robot Capabilities
 
--   **Submersible Design**: Can dive and surface using ballast tanks
+-   **Advanced AUV Design**: Realistic underwater vehicle with sophisticated movement dynamics
 -   **Thermal Imaging**: Detects heat signatures of survivors, injured victims, and deceased bodies
--   **Sonar Navigation**: Avoids debris and obstacles underwater
--   **Multi-depth Search**: Operates at surface, shallow, medium, and deep water levels
--   **Real-time Data**: Transmits detection data to rescue teams
--   **Target Collection**: Automatically rescues victims when approaching within 2 meters
--   **Interactive Rescue**: Visual collection effects with real-time feedback
+-   **Visual Sonar System**: Real-time 3D sonar visualization with object detection wireframes
+-   **Intelligent Pathfinding**: Autonomous navigation with obstacle avoidance
+-   **Multi-depth Operations**: Surface, shallow, medium, and deep water search capabilities
+-   **Real-time Data Transmission**: Live sensor data streaming to rescue coordination centers
+-   **Automatic Target Collection**: Proximity-based victim rescue within 2-meter range
+-   **Dynamic Environmental Events**: Realistic underwater conditions and marine life interactions
 
 ### 🎥 Camera Views
 
--   **First-Person**: Immersive view from robot's perspective (default)
--   **Third-Person**: Follow camera behind the robot for better navigation
--   **Underwater**: Close-up following view optimized for underwater operations
--   **Thermal**: Specialized thermal imaging view
--   **Overview**: Bird's eye view for strategic planning
--   **Sonar**: Side view optimized for sonar visualization
+-   **Optical Mode**: Standard underwater camera view with realistic lighting and water effects
+-   **Sonar Mode**: Advanced 3D sonar visualization with color-coded object detection wireframes
+-   **Seamless Switching**: Toggle between optical and sonar modes with consistent scene rendering
 
-### 🌊 Water Environment
+### 🌊 Underwater Environment
 
--   **Realistic Pool Environment**: Adjustable size and depth
--   **Water Turbidity**: Simulates murky flood water conditions
--   **Floating Debris**: Obstacles that the robot must navigate around
--   **Underwater Effects**: Bubbles, currents, and realistic lighting
+-   **Realistic Flooded City**: Detailed urban environment with submerged buildings, vehicles, and debris
+-   **Dynamic Water Effects**: Advanced underwater lighting, particle systems, and water turbidity simulation
+-   **Floating Debris Field**: Complex obstacle course requiring intelligent navigation
+-   **Environmental Hazards**: Realistic underwater conditions affecting AUV performance
+-   **Marine Life**: Dynamic sea creatures that interact with sonar systems during interference events
 
-### 🔍 Search Patterns
+### 🔍 Search & Navigation Systems
 
-1. **Surface Sweep**: Grid pattern search at water surface
-2. **Spiral Dive**: Spiral pattern with gradual depth increase
-3. **Depth Layers**: Systematic layer-by-layer search
-4. **Debris Navigation**: Optimized path around obstacles
-5. **Thermal Tracking**: Focuses on detected heat signatures
+1. **Autonomous Pathfinding**: AI-driven navigation with dynamic obstacle avoidance
+2. **Grid Pattern Search**: Systematic area coverage for comprehensive victim location
+3. **Intelligent Depth Management**: Automatic depth adjustment based on environment conditions
+4. **Collision Avoidance**: Real-time obstacle detection and path replanning
+5. **Heat Signature Tracking**: Thermal-guided navigation toward potential victims
+6. **Marine Life Awareness**: Advanced detection of biological interference
 
-### 🎯 Heat Signature Detection & Collection
+### ⚡ Dynamic Environmental Events
 
--   **Human Survivor** (37°C) - Priority 1: Immediate rescue
--   **Injured Victim** (35°C) - Priority 2: Urgent medical attention
--   **Deceased Body** (28°C) - Priority 3: Recovery operation
--   **Trapped Animal** (39°C) - Priority 4: Animal rescue
--   **Submerged Vehicle** (22°C) - Check for occupants
+The simulation includes realistic underwater events that affect AUV operations:
 
-**Collection System**: Approach within 2 meters of any target to automatically collect it with visual effects and status updates.
+-   **High Current**: Strong underwater currents affecting movement and navigation
+-   **Low Visibility**: Reduced optical visibility due to sediment or algae blooms
+-   **Thermal Layers**: Temperature differences affecting sonar accuracy and detection
+-   **Magnetic Interference**: Compass and navigation system disruptions
+-   **Equipment Malfunction**: Temporary system failures (sonar, navigation, propulsion, lights)
+-   **Marine Life Interference**: Realistic sea creatures appearing during biological activity
+-   **Underwater Storm**: Turbulence causing erratic movement and reduced control
 
-## Controls
+### 🎯 Advanced Detection & Collection Systems
 
-### Operation Modes
+-   **Human Survivor** (37°C) - Priority 1: Immediate rescue with emergency beacon activation
+-   **Injured Victim** (35°C) - Priority 2: Urgent medical attention with location marking
+-   **Deceased Body** (28°C) - Priority 3: Recovery operation with respectful handling protocols
+-   **Trapped Animal** (39°C) - Priority 4: Animal rescue with specialized collection procedures
+-   **Submerged Vehicle** (22°C) - Priority 5: Vehicle inspection for potential occupants
 
--   **Auto**: Autonomous search and rescue
--   **Manual**: Direct control (WASD + QE for depth)
--   **Rescue-Mode**: High priority victim search
--   **Deep-Search**: Extended depth search operations
+**Advanced Collection System**:
+
+-   **Proximity Detection**: Automatic collection when approaching within 2 meters
+-   **Visual Effects**: Dynamic particle systems and color-coded collection animations
+-   **Status Updates**: Real-time mission progress and rescue statistics
+-   **Intelligent Prioritization**: AI-driven target selection based on urgency and thermal signatures
+
+## Controls & Operation
+
+### Control Modes
+
+-   **Manual Mode**: Direct AUV control with full freedom of movement
+-   **Free Camera**: Detached camera for cinematic viewing and analysis
+-   **Collision Detection**: Real-time obstacle avoidance and damage assessment
 
 ### Manual Controls
 
 -   **W/S**: Move forward/backward
 -   **A/D**: Turn left/right
--   **Q/E**: Dive/surface
--   **Tab**: Toggle control panel
--   **Camera Button**: Cycle through camera views (First-Person → Third-Person → Underwater → Thermal → Overview → Sonar)
+-   **Q/E**: Dive/surface (depth control)
+-   **C**: Toggle between Manual AUV control and Free Camera mode
+-   **V**: Switch between Optical and Sonar camera modes
+-   **H**: Toggle collision detection wireframe visualization
+-   **Mouse**: Free camera look controls (when in Free Camera mode)
 
-### Camera Views
+### Camera System
 
--   **First-Person**: Experience the rescue from robot's perspective - perfect for immersive target collection
--   **Third-Person**: Follow behind the robot for better spatial awareness and navigation
--   **Underwater**: Optimized close-up view for underwater operations
--   **Thermal**: Specialized thermal imaging view for heat detection
--   **Overview**: Strategic bird's eye view for mission planning
--   **Sonar**: Side view optimized for sonar and obstacle visualization
+-   **Optical Mode**: Realistic underwater view with natural lighting and water effects
+-   **Sonar Mode**: Advanced 3D sonar visualization with:
+    -   Color-coded object wireframes based on distance and type
+    -   Real-time object detection and classification
+    -   Consistent scene background and lighting
+    -   Dynamic environmental effects
 
-### Target Collection
+### Target Interaction
 
--   **Automatic Collection**: Approach within 2 meters of victims or debris
--   **Visual Effects**: Green flash and fade-out animation when collecting targets
--   **Real-time Updates**: Immediate feedback on rescue count and mission status
--   **Priority System**: Different targets provide different mission feedback
-
-### Emergency Controls
-
--   **Emergency Dive**: Immediate descent to avoid surface hazards
--   **Emergency Surface**: Emergency ascent (low battery, malfunction)
--   **Reset Simulation**: Restart the entire simulation
+-   **Automatic Detection**: Thermal and sonar sensors continuously scan for targets
+-   **Proximity Collection**: Approach within 2 meters for automatic victim rescue
+-   **Visual Feedback**: Particle effects and color-coded animations during collection
+-   **Mission Tracking**: Real-time statistics on rescue progress and area coverage
 
 ## Technical Specifications
 
-### Sensors
+### Advanced Sensor Systems
 
--   **Thermal Detection Range**: 8m (affected by water turbidity)
--   **Sonar Range**: 10m with 60 rays
--   **Maximum Dive Depth**: 6m
--   **Battery Life**: Decreases during operation
+-   **Thermal Detection Range**: 8-15m range (affected by water conditions and turbidity)
+-   **3D Sonar Visualization**: Real-time object detection with color-coded wireframe rendering
+-   **Maximum Operating Depth**: 15m with full sensor capability
+-   **Collision Detection**: Multi-directional impact assessment with damage visualization
+-   **Environmental Sensors**: Water temperature, pressure, and current monitoring
 
-### Performance Metrics
+### Performance Metrics & Monitoring
 
--   **Victims Found**: Number of survivors located
--   **Area Searched**: Percentage of search area covered
--   **Heat Detection Status**: Real-time thermal scanning
--   **Battery Level**: Current power remaining
--   **Water Depth**: Current submersion level
+-   **Real-time Navigation Data**: Position, heading, speed, and depth tracking
+-   **Search Efficiency**: Area coverage analysis and target detection statistics
+-   **Environmental Conditions**: Water temperature, visibility, and turbidity measurements
+-   **System Health**: Battery level, sensor status, and equipment functionality
+-   **Event Logging**: Comprehensive record of collisions, rescues, and environmental events
+
+### Simulation Features
+
+-   **Physics Engine**: Realistic underwater movement dynamics and collision physics
+-   **Dynamic Lighting**: Advanced underwater lighting with depth-based color filtering
+-   **Particle Systems**: Bubbles, debris, and environmental effects
+-   **Material Rendering**: PBR materials with realistic underwater appearance
+-   **Event System**: Random environmental challenges and equipment malfunctions
 
 ## Research Context
 
@@ -144,48 +165,98 @@ The HYDROBOT uses specially designed thermal sensors placed above the waterline 
    Navigate to `http://localhost:5173/`
 
 4. **Start Simulation**:
-    - Choose operation mode (Auto/Manual/Rescue/Deep-Search)
-    - Select search pattern
-    - Adjust environment parameters
-    - Watch the HYDROBOT locate victims!
+    - Use **Manual Mode** for direct AUV control
+    - Switch to **Free Camera** mode for cinematic viewing
+    - Toggle between **Optical** and **Sonar** modes to see different visualization systems
+    - Navigate through the flooded city environment and locate thermal signatures
+    - Watch for dynamic environmental events that affect AUV operations
 
-## Simulation Tips
+## Simulation Guide
 
-1. **Start with First-Person**: Get immersed in the rescue experience right away
-2. **Switch to Third-Person**: When you need better navigation and spatial awareness
-3. **Use Surface Sweep**: Good for initial reconnaissance in auto mode
-4. **Manual Collection**: Drive close to victims (within 2m) to automatically rescue them
-5. **Use Rescue Mode**: When you need to prioritize human survivors in auto mode
-6. **Monitor Battery**: Emergency surface when battery is low
-7. **Adjust Turbidity**: Higher turbidity reduces thermal detection range
-8. **Watch for Debris**: Robot will automatically avoid obstacles
-9. **Check Heat Signatures**: Different colors indicate different types of victims
-10. **Cycle Camera Views**: Use different views for different situations (first-person for collection, overview for strategy)
+### Basic Operation
 
-## Educational Value
+1. **Start with Manual Control**: Use WASD + QE to navigate the AUV through the underwater environment
+2. **Toggle Camera Modes**: Press **V** to switch between Optical and Sonar visualization
+3. **Monitor Environment**: Watch for environmental events that affect navigation and sensors
+4. **Locate Targets**: Use thermal signatures and sonar detection to find victims and debris
+5. **Collect Victims**: Approach within 2 meters of any target for automatic rescue collection
 
-This simulation demonstrates:
+### Advanced Features
 
--   Real-world robotics applications in disaster response
--   Thermal imaging technology principles
--   Autonomous navigation and path planning
--   Human-robot interaction in emergency scenarios
--   The importance of technology in saving lives
--   First-person perspective on rescue operations
--   Target acquisition and collection systems
--   Multi-perspective camera systems in robotics
+6. **Free Camera Mode**: Press **C** to detach camera for better environmental observation
+7. **Collision Visualization**: Press **H** to see wireframe hitboxes for all objects
+8. **Environmental Events**: Experience realistic underwater conditions like currents, visibility changes, and marine life interference
+9. **Dynamic Sonar**: Watch object wireframes appear and fade in sonar mode based on distance and detection
+10. **Mission Analysis**: Monitor rescue statistics and area coverage in real-time
 
-## Future Enhancements
+## Educational Value & Applications
 
--   Water current simulation
--   Multi-robot coordination
--   Advanced AI for victim prioritization
--   Virtual reality integration
--   Real-time weather effects
--   More detailed target interaction
--   Multiplayer rescue coordination
--   Advanced debris physics
+This simulation demonstrates advanced concepts in:
+
+### Robotics & Engineering
+
+-   **Autonomous Underwater Vehicle (AUV) Design**: Realistic movement dynamics and sensor integration
+-   **Sensor Fusion**: Combining thermal imaging and sonar data for comprehensive environmental awareness
+-   **Pathfinding Algorithms**: AI-driven navigation with dynamic obstacle avoidance
+-   **Real-time Data Processing**: Live sensor data interpretation and decision making
+-   **Human-Robot Interaction**: Intuitive control systems for emergency response operations
+
+### Computer Graphics & Simulation
+
+-   **3D Underwater Rendering**: Advanced lighting, water effects, and particle systems
+-   **Physics Simulation**: Realistic collision detection and underwater movement dynamics
+-   **Dynamic Event Systems**: Procedural environmental challenges and equipment failures
+-   **User Interface Design**: Mission-critical information display and control systems
+
+### Emergency Response & Disaster Management
+
+-   **Search and Rescue Operations**: Systematic victim location and extraction procedures
+-   **Thermal Imaging Applications**: Heat signature detection in challenging environments
+-   **Environmental Hazard Management**: Operating in unpredictable underwater conditions
+-   **Technology in Disaster Response**: The role of advanced robotics in saving lives
+
+## Research Applications
+
+This simulation supports research in:
+
+-   **Flood Rescue Technology**: Advanced sensor systems for victim detection in turbid water
+-   **Autonomous Navigation**: AI pathfinding in complex, debris-filled environments
+-   **Marine Robotics**: AUV design and operation in challenging underwater conditions
+-   **Human-Computer Interaction**: Interface design for emergency response systems
+-   **Environmental Monitoring**: Real-time assessment of underwater conditions and hazards
+
+## Future Development
+
+### Planned Enhancements
+
+-   **Multi-AUV Coordination**: Fleet operations with distributed search patterns
+-   **Advanced AI Behaviors**: Machine learning for improved victim prioritization
+-   **Virtual Reality Integration**: Immersive operator training and remote piloting
+-   **Enhanced Physics**: Advanced fluid dynamics and underwater current simulation
+-   **Expanded Environments**: Different disaster scenarios (tsunamis, storm surge, dam failures)
+
+### Research Opportunities
+
+-   **Sensor Technology**: Integration of new detection methods and sensors
+-   **Communication Systems**: AUV-to-base data transmission in challenging conditions
+-   **Power Management**: Battery optimization and charging strategies
+-   **Rescue Protocols**: Development of automated victim extraction procedures
+-   **Training Systems**: VR-based operator certification and skill development
 
 ---
 
-_Based on the HYDROBOT research project for flood rescue detection using thermal imaging sensors._
+## Project Context
+
+This simulation is inspired by real-world flood rescue challenges in the Philippines and advances in autonomous underwater vehicle technology. The HYDROBOT concept addresses critical needs in disaster response, particularly in flood-prone regions where traditional rescue methods are limited by visibility and environmental conditions.
+
+### Key Innovation
+
+The simulation showcases the integration of thermal imaging sensors with advanced sonar systems, placed strategically on an AUV to detect heat signatures through turbid water conditions - a breakthrough approach for flood victim detection and rescue operations.
+
+### Technical Foundation
+
+Built with Vue.js 3, Three.js, and advanced WebGL rendering, this simulation provides a realistic and educational experience that bridges the gap between theoretical robotics concepts and practical emergency response applications.
+
+---
+
+_Advancing flood rescue technology through innovative AUV design and thermal imaging sensor integration._
