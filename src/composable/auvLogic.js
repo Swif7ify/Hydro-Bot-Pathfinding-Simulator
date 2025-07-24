@@ -835,14 +835,14 @@ export class AUVLogic {
 
 		// Load the actual AUV model
 		const mtlLoader = new MTLLoader();
-		mtlLoader.setPath("./src/assets/model/");
+		mtlLoader.setPath("public/models/");
 
 		mtlLoader.load("HydroBot AUV.mtl", (materials) => {
 			materials.preload();
 
 			const objLoader = new OBJLoader();
 			objLoader.setMaterials(materials);
-			objLoader.setPath("./src/assets/model/");
+			objLoader.setPath("public/models/");
 
 			objLoader.load(
 				"HydroBot AUV.obj",
