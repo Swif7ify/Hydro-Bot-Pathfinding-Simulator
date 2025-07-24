@@ -1,6 +1,6 @@
 # 🌊 HYDROBOT Autonomous Underwater Vehicle Simulator
 
-A professional-grade underwater search and rescue simulation system featuring advanced sonar navigation and optical sensor. The HYDROBOT project represents a comprehensive autonomous underwater vehicle (AUV) platform designed for disaster response operations in flooded environments, incorporating state-of-the-art sensor technology and intelligent navigation algorithms.
+A professional-grade underwater search and rescue simulation system featuring advanced sonar navigation and optical sensor. The HYDROBOT project represents a comprehensive autonomous underwater vehicle (AUV) platform designed for disaster response operations in flooded environments.
 
 ## System Capabilities
 
