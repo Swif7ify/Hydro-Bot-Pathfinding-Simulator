@@ -878,7 +878,7 @@ export class AUVLogic {
 		const mtlLoader = new MTLLoader();
 		mtlLoader.setPath("models/");
 
-		mtlLoader.load("HydroBot AUV.mtl", (materials) => {
+		mtlLoader.load("HydroBotAUV.mtl", (materials) => {
 			materials.preload();
 
 			const objLoader = new OBJLoader();
@@ -886,7 +886,7 @@ export class AUVLogic {
 			objLoader.setPath("models/");
 
 			objLoader.load(
-				"HydroBot AUV.obj",
+				"HydroBotAUV.obj",
 				(object) => {
 					// Remove temporary AUV
 					if (this.auv) {
