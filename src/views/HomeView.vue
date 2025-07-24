@@ -1,5 +1,5 @@
 <template>
-	<div class="seasick-gui">
+	<div class="hydrobot-gui">
 		<!-- Main Display Area -->
 		<div class="main-display" :class="{ 'screen-shake': screenShake }">
 			<!-- Fullscreen Camera Canvas -->
@@ -202,20 +202,6 @@
 						<div class="sar-header">SEARCH & RESCUE</div>
 						<div class="sar-items">
 							<div class="sar-row">
-								<span class="sar-label">FOUND:</span>
-								<span class="sar-value"
-									>{{ searchProgress.found }}/{{
-										searchProgress.total
-									}}</span
-								>
-							</div>
-							<div class="sar-row" v-if="nearestTarget">
-								<span class="sar-label">NEAREST:</span>
-								<span class="sar-value"
-									>{{ nearestTarget.distance }}m</span
-								>
-							</div>
-							<div class="sar-row">
 								<span class="sar-label">STATUS:</span>
 								<span
 									class="sar-value"
@@ -363,7 +349,12 @@
 import { ref, onMounted, onUnmounted } from "vue";
 import { AUVLogic } from "../composable/auvLogic.js";
 
-// GUI state
+/**
+ * HYDROBOT AUV Interface State Management
+ * Manages the real-time underwater vehicle interface and status displays
+ */
+
+// Navigation and positioning data
 const currentTime = ref(new Date().toLocaleTimeString());
 const latitude = ref("0.000000");
 const longitude = ref("0.000000");
@@ -376,13 +367,13 @@ const sweepAngle = ref(0);
 const compassHeading = ref(0);
 const cameraMode = ref("optical");
 
-// Search and rescue state
+// Search and rescue mission status
 const searchProgress = ref({ found: 0, total: 0 });
 const nearestTarget = ref(null);
 const searchStatus = ref("SEARCHING");
 const searchStatusClass = ref("searching");
 
-// Collision detection state
+// Vehicle integrity monitoring
 const collisionActive = ref(false);
 const damageStatus = ref({
 	front: false,
@@ -393,29 +384,40 @@ const damageStatus = ref({
 const recentCollisions = ref([]);
 const screenShake = ref(false);
 
-// Random Events state
+// Environmental event tracking
 const currentEvent = ref(null);
 
-// AUV Logic instance
+// Core simulation engine
 let auvLogic = null;
 const mainCanvas = ref(null);
 
-// Animation for sonar sweep
+// Interface animation controllers
 let sweepInterval = null;
 let timeInterval = null;
 let updateInterval = null;
 
-// Update time display
+/**
+ * Updates the system clock display
+ * Called every second to maintain accurate time representation
+ */
 const updateTime = () => {
 	currentTime.value = new Date().toLocaleTimeString();
 };
 
-// Animate sonar sweep
+/**
+ * Animates the sonar sweep indicator
+ * Provides visual feedback for active sonar scanning operations
+ */
 const animateSweep = () => {
 	sweepAngle.value = (sweepAngle.value + 2) % 360;
 };
 
-// Format time in mm:ss format
+/**
+ * Formats milliseconds to readable time format (mm:ss)
+ * Used for displaying event countdowns and mission timers
+ * @param {number} milliseconds - Time value to format
+ * @returns {string} Formatted time string
+ */
 const formatTime = (milliseconds) => {
 	const totalSeconds = Math.floor(milliseconds / 1000);
 	const minutes = Math.floor(totalSeconds / 60);
@@ -423,7 +425,11 @@ const formatTime = (milliseconds) => {
 	return `${minutes}:${seconds.toString().padStart(2, "0")}`;
 };
 
-// Update GUI values from AUV
+/**
+ * Main interface update cycle
+ * Synchronizes all GUI elements with the AUV simulation state
+ * Called at 10Hz for smooth real-time updates
+ */
 const updateGUIFromAUV = () => {
 	if (auvLogic) {
 		const position = auvLogic.getPosition();
@@ -432,45 +438,44 @@ const updateGUIFromAUV = () => {
 		const heading = auvLogic.getHeading();
 		const rotation = auvLogic.getRotation();
 
-		// Update position (convert to lat/lng format)
-		latitude.value = (40.7128 + position.x * 0.0001).toFixed(6); // Start from NYC coordinates
+		// Convert simulation coordinates to geographic coordinates (NYC reference point)
+		latitude.value = (40.7128 + position.x * 0.0001).toFixed(6);
 		longitude.value = (-74.006 + position.z * 0.0001).toFixed(6);
 
-		// Update depth
+		// Update vehicle depth reading
 		currentDepth.value = depth.toFixed(1);
 
-		// Update speed
+		// Update vehicle speed in knots
 		robotSpeed.value = speed;
 
-		// Update compass heading using raw rotation to avoid interpolation issues
-		// Convert Z rotation to compass heading (0° = North, 90° = East, etc.)
+		// Calculate compass heading from vehicle rotation
+		// Convert Z rotation to magnetic compass bearing (0° = North, 90° = East)
 		let rotationDegrees = (rotation.z * 180) / Math.PI;
-		// Normalize to 0-360 range and adjust for compass orientation
 		compassHeading.value = (360 - rotationDegrees) % 360;
 
-		// Update camera mode
+		// Update active camera system mode
 		cameraMode.value = auvLogic.getCameraMode();
 
-		// Update environmental data based on depth and conditions
-		waterTemperature.value = Math.max(4, 24 - Math.floor(depth * 2)); // Temp decreases with depth
+		// Calculate environmental conditions based on depth
+		waterTemperature.value = Math.max(4, 24 - Math.floor(depth * 2)); // Temperature decreases with depth
 		pressure.value = (1 + depth * 0.1).toFixed(1); // Pressure increases with depth
 
-		// Battery decreases slowly over time
+		// Simulate battery consumption during operation
 		if (speed > 0) {
 			batteryLevel.value = Math.max(0, batteryLevel.value - 0.01);
 		}
 
-		// Update search and rescue data
+		// Update mission progress and target data
 		searchProgress.value = auvLogic.getSearchProgress();
 		nearestTarget.value = auvLogic.getNearestTarget();
 
-		// Update collision data
+		// Process collision detection and damage assessment
 		const collisionData = auvLogic.getCollisionData();
 		if (collisionData) {
 			collisionActive.value = collisionData.active;
 			damageStatus.value = collisionData.damageStatus;
 
-			// Add new collisions to log
+			// Log new collision events for operator awareness
 			if (collisionData.newCollision) {
 				addCollisionToLog(collisionData.newCollision);
 				triggerScreenShake();
@@ -492,13 +497,17 @@ const updateGUIFromAUV = () => {
 			searchStatusClass.value = "searching";
 		}
 
-		// Update random events
+		// Update active environmental events
 		const eventDescription = auvLogic.getEventDescription();
 		currentEvent.value = eventDescription;
 	}
 };
 
-// Get visibility status based on camera mode and depth
+/**
+ * Calculates visibility conditions based on current sensor mode and depth
+ * Accounts for underwater light attenuation and sonar effectiveness
+ * @returns {string} Visibility status description
+ */
 const getVisibilityStatus = () => {
 	if (!auvLogic) return "UNKNOWN";
 
@@ -506,9 +515,10 @@ const getVisibilityStatus = () => {
 	const mode = cameraMode.value;
 
 	if (mode === "sonar") {
+		// Sonar maintains effectiveness at greater depths
 		return depth < 5 ? "EXCELLENT" : "GOOD";
 	} else {
-		// Optical camera - visibility decreases with depth
+		// Optical visibility degrades rapidly with depth due to light attenuation
 		if (depth < 2) return "EXCELLENT";
 		if (depth < 5) return "GOOD";
 		if (depth < 8) return "POOR";
@@ -516,7 +526,11 @@ const getVisibilityStatus = () => {
 	}
 };
 
-// Add collision to log
+/**
+ * Records and displays collision events in the operator log
+ * Maintains a rolling history of the most recent impacts
+ * @param {Object} collision - Collision event data including type and direction
+ */
 const addCollisionToLog = (collision) => {
 	const now = new Date();
 	const timeStr = now.toLocaleTimeString().slice(0, 8);
@@ -530,18 +544,21 @@ const addCollisionToLog = (collision) => {
 
 	recentCollisions.value.unshift(newCollision);
 
-	// Keep only last 5 collisions
+	// Maintain maximum of 5 collision entries for display clarity
 	if (recentCollisions.value.length > 5) {
 		recentCollisions.value.pop();
 	}
 
-	// Remove fresh status after 3 seconds
+	// Clear visual highlight after brief display period
 	setTimeout(() => {
 		newCollision.fresh = false;
 	}, 3000);
 };
 
-// Trigger screen shake effect
+/**
+ * Provides visual feedback for significant collision events
+ * Creates temporary screen shake effect to alert operator
+ */
 const triggerScreenShake = () => {
 	screenShake.value = true;
 	setTimeout(() => {
@@ -550,9 +567,9 @@ const triggerScreenShake = () => {
 };
 
 onMounted(() => {
-	// Wait for next tick to ensure canvas is properly mounted
+	// Ensure DOM elements are fully rendered before initialization
 	setTimeout(() => {
-		// Initialize AUV logic with the canvas
+		// Initialize the AUV simulation engine
 		if (mainCanvas.value) {
 			try {
 				auvLogic = new AUVLogic(mainCanvas.value);
@@ -565,7 +582,7 @@ onMounted(() => {
 		}
 	}, 100);
 
-	// Start intervals
+	// Start interface update cycles
 	timeInterval = setInterval(updateTime, 1000);
 	sweepInterval = setInterval(animateSweep, 50);
 	updateInterval = setInterval(updateGUIFromAUV, 100);
@@ -574,6 +591,7 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+	// Clean up all active intervals to prevent memory leaks
 	if (timeInterval) clearInterval(timeInterval);
 	if (sweepInterval) clearInterval(sweepInterval);
 	if (updateInterval) clearInterval(updateInterval);

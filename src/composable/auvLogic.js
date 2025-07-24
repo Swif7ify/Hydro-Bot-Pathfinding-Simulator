@@ -2,7 +2,26 @@ import * as THREE from "three";
 import { OBJLoader } from "three/examples/jsm/loaders/OBJLoader.js";
 import { MTLLoader } from "three/examples/jsm/loaders/MTLLoader.js";
 
+/**
+ * HYDROBOT AUV Simulation Engine
+ *
+ * Core simulation system for autonomous underwater vehicle operations.
+ * Manages 3D environment rendering, physics simulation, sensor systems,
+ * collision detection, and search-and-rescue mission execution.
+ *
+ * Features:
+ * - Real-time 3D underwater environment with physics
+ * - Dual-mode camera system (optical/sonar) with seamless switching
+ * - Advanced collision detection and damage assessment
+ * - Environmental event simulation (currents, interference, malfunctions)
+ * - Search and rescue target detection and collection
+ * - Professional-grade navigation and control systems
+ */
 export class AUVLogic {
+	/**
+	 * Initialize the AUV simulation system
+	 * @param {HTMLCanvasElement} canvas - Primary rendering canvas element
+	 */
 	constructor(canvas) {
 		this.canvas = canvas;
 		this.scene = null;
@@ -10,48 +29,48 @@ export class AUVLogic {
 		this.renderer = null;
 		this.auv = null;
 
-		// Movement properties
+		// Vehicle dynamics and control
 		this.velocity = new THREE.Vector3();
 		this.speed = 0.1;
 		this.rotationSpeed = 0.02;
 
-		// Navigation tracking
-		this.currentHeading = 0; // Compass heading in degrees (0-360)
-		this.currentSpeed = 0; // Speed in knots
+		// Navigation and telemetry systems
+		this.currentHeading = 0; // Magnetic compass bearing (0-360 degrees)
+		this.currentSpeed = 0; // Forward velocity in knots
 		this.lastPosition = new THREE.Vector3(0, 0, 0);
 		this.lastUpdateTime = Date.now();
-		this.speedSamples = []; // For speed smoothing
+		this.speedSamples = []; // Speed averaging buffer for smooth readings
 		this.maxSpeedSamples = 10;
-		this.compassErrorOffset = 0; // For magnetic interference events
+		this.compassErrorOffset = 0; // Magnetic interference compensation
 
-		// Camera control
+		// Camera control systems
 		this.isFreeCam = false;
 		this.cameraSpeed = 0.2;
 		this.mouseSensitivity = 0.002;
 		this.isPointerLocked = false;
 
-		// Camera modes: 'optical', 'sonar'
+		// Sensor mode management ('optical', 'sonar')
 		this.cameraMode = "optical";
 		this.sonarRenderer = null;
 
-		// Sonar system
+		// Advanced sonar detection system
 		this.sonarSystem = {
 			detectedObjects: [],
 			scanRadius: 50,
-			fadeTime: 8000, // How long detections stay visible (ms)
+			fadeTime: 8000, // Object persistence duration (milliseconds)
 			canvas: null,
 			ctx: null,
 			isActive: false,
-			maxPulseRange: 50, // Keep this for compatibility
-			pulses: [], // Keep empty array for compatibility
+			maxPulseRange: 50, // Maintained for compatibility
+			pulses: [], // Maintained for compatibility
 
-			// Visual settings
+			// Sonar visualization parameters
 			backgroundColor: 0x000811,
 			returnColor: "#88ff00",
 			oldReturnColor: "#446622",
 		};
 
-		// Input state
+		// Operator input state management
 		this.keys = {
 			forward: false,
 			backward: false,
@@ -63,22 +82,22 @@ export class AUVLogic {
 			turnRight: false,
 		};
 
-		// Camera offset from AUV (first person view) - positioned in front of AUV
-		this.cameraOffset = new THREE.Vector3(0, -2, 0.5); // Adjusted for smaller AUV
+		// First-person camera positioning relative to AUV
+		this.cameraOffset = new THREE.Vector3(0, -2, 0.5); // Optimized for vehicle scale
 
-		// Scene constraints
+		// Operational environment constraints
 		this.constraints = {
-			minY: -15, // Ocean floor
-			maxY: 5, // Surface
-			boundary: 100, // Horizontal boundary
+			minY: -15, // Maximum operational depth
+			maxY: 5, // Surface limit
+			boundary: 100, // Horizontal operational area
 		};
 
-		// Collision detection
-		this.collisionObjects = []; // Array to store objects that can be collided with
-		this.auvBoundingBox = new THREE.Box3(); // AUV bounding box for collision detection
-		this.raycaster = new THREE.Raycaster(); // For raycasting collision detection
+		// Collision detection and safety systems
+		this.collisionObjects = []; // Environment obstacles for collision checking
+		this.auvBoundingBox = new THREE.Box3(); // Vehicle collision boundary
+		this.raycaster = new THREE.Raycaster(); // Ray-based collision detection
 
-		// Collision tracking for GUI
+		// Vehicle integrity monitoring
 		this.collisionData = {
 			active: false,
 			damageStatus: {
@@ -91,11 +110,15 @@ export class AUVLogic {
 			lastCollisionTime: 0,
 		};
 
-		// Random Events System
+		// Search and rescue mission systems
+		this.foundSurvivors = []; // Located survivors awaiting rescue
+		this.rescueMessages = []; // Operator notification queue
+
+		// Environmental event simulation system
 		this.randomEvents = {
 			active: null,
 			lastEventTime: 0,
-			eventCooldown: 15000, // 15 seconds minimum between events
+			eventCooldown: 15000, // Minimum time between events (15 seconds)
 			eventTypes: [
 				"highCurrent",
 				"lowVisibility",
@@ -108,27 +131,27 @@ export class AUVLogic {
 			effects: {
 				highCurrent: {
 					name: "High Current",
-					duration: Math.random() * 30000 + 30000, // 30-60 seconds
+					duration: Math.random() * 30000 + 30000, // 30-60 second duration
 					force: new THREE.Vector3(),
 					description:
 						"Strong underwater currents affecting movement",
 				},
 				lowVisibility: {
 					name: "Low Visibility",
-					duration: Math.random() * 30000 + 30000, // 30-60 seconds
+					duration: Math.random() * 30000 + 30000, // 30-60 second duration
 					fogDensity: 0.8,
 					description: "Reduced visibility due to sediment or algae",
 				},
 				thermalLayer: {
 					name: "Thermal Layer",
-					duration: Math.random() * 30000 + 30000, // 30-60 seconds
+					duration: Math.random() * 30000 + 30000, // 30-60 second duration
 					sonarInterference: 0.6,
 					description:
 						"Temperature differences affecting sonar accuracy",
 				},
 				magneticInterference: {
 					name: "Magnetic Interference",
-					duration: Math.random() * 30000 + 30000, // 30-60 seconds
+					duration: Math.random() * 30000 + 30000, // 30-60 second duration
 					compassError: 15,
 					description:
 						"Magnetic anomaly affecting navigation systems",
@@ -160,22 +183,26 @@ export class AUVLogic {
 		this.animate();
 	}
 
+	/**
+	 * Initialize the complete 3D simulation environment
+	 * Sets up rendering pipeline, lighting, environment, and vehicle systems
+	 */
 	init() {
-		// Create scene
+		// Initialize the Three.js scene container
 		this.scene = new THREE.Scene();
 
-		// Create underwater fog effect with sonar colors
+		// Configure underwater atmosphere with realistic fog and color
 		this.scene.fog = new THREE.Fog(0x001144, 1, 50);
 		this.scene.background = new THREE.Color(0x000811);
 
-		// Get canvas dimensions
+		// Determine rendering canvas dimensions
 		const rect = this.canvas.getBoundingClientRect();
 		const width = rect.width || window.innerWidth;
 		const height = rect.height || window.innerHeight;
 
 		console.log("Canvas dimensions:", width, "x", height);
 
-		// Create camera (first person perspective)
+		// Configure first-person perspective camera
 		this.camera = new THREE.PerspectiveCamera(
 			75,
 			width / height,
@@ -184,7 +211,7 @@ export class AUVLogic {
 		);
 		this.camera.position.set(0, 0, 0);
 
-		// Create renderer
+		// Initialize WebGL renderer with high-quality settings
 		this.renderer = new THREE.WebGLRenderer({
 			canvas: this.canvas,
 			antialias: true,
@@ -194,45 +221,50 @@ export class AUVLogic {
 		this.renderer.shadowMap.enabled = true;
 		this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
-		// Force canvas to take full size
+		// Ensure canvas occupies full available space
 		this.canvas.style.width = "100%";
 		this.canvas.style.height = "100%";
 		this.canvas.style.display = "block";
 
 		console.log("Renderer created");
 
-		// Initialize sonar system
+		// Initialize advanced sonar visualization system
 		this.initializeSonarSystem();
 
-		// Setup lighting for underwater environment
+		// Configure underwater lighting environment
 		this.setupLighting();
 		console.log("Lighting setup complete");
 
-		// Create underwater environment
+		// Generate the flooded urban environment
 		this.createUnderwaterEnvironment();
 		console.log("Environment created");
 
-		// Store original material colors before any mode effects
+		// Preserve original material properties for camera mode switching
 		this.storeOriginalMaterials();
 
-		// Load AUV model
+		// Load the detailed AUV 3D model
 		this.loadAUVModel();
 		console.log("AUV model loading started");
 
-		// Handle window resize
+		// Register viewport resize handler
 		window.addEventListener("resize", () => this.onWindowResize());
 
-		// Force initial render
+		// Execute initial rendering pass
 		this.renderer.render(this.scene, this.camera);
 		console.log("Initial render complete");
 	}
 
+	/**
+	 * Configure underwater lighting environment
+	 * Establishes realistic underwater illumination with surface light filtering
+	 * and vehicle-mounted illumination systems
+	 */
 	setupLighting() {
-		// Ambient light (underwater has diffused light)
+		// Ambient underwater illumination (filtered sunlight)
 		const ambientLight = new THREE.AmbientLight(0x4488bb, 0.4);
 		this.scene.add(ambientLight);
 
-		// Directional light (simulating filtered sunlight from above)
+		// Primary directional light (simulates filtered surface sunlight)
 		const directionalLight = new THREE.DirectionalLight(0x88ccff, 0.6);
 		directionalLight.position.set(0, 10, 0);
 		directionalLight.castShadow = true;
@@ -246,12 +278,16 @@ export class AUVLogic {
 		directionalLight.shadow.camera.bottom = -20;
 		this.scene.add(directionalLight);
 
-		// AUV headlights
+		// Initialize vehicle-mounted lighting systems
 		this.createAUVLights();
 	}
 
+	/**
+	 * Create vehicle-mounted illumination systems
+	 * Provides forward-facing spotlights for enhanced visibility and object illumination
+	 */
 	createAUVLights() {
-		// Front headlights
+		// Port side headlight
 		this.leftHeadlight = new THREE.SpotLight(
 			0xffffff,
 			1,
@@ -259,6 +295,7 @@ export class AUVLogic {
 			Math.PI / 4,
 			0.1
 		);
+		// Starboard side headlight
 		this.rightHeadlight = new THREE.SpotLight(
 			0xffffff,
 			1,
@@ -276,11 +313,15 @@ export class AUVLogic {
 		this.scene.add(this.rightHeadlight.target);
 	}
 
+	/**
+	 * Generate the complete underwater disaster environment
+	 * Creates a flooded urban area with buildings, vehicles, debris, and search targets
+	 */
 	createUnderwaterEnvironment() {
-		// Create ocean floor with sonar color theme
+		// Generate ocean floor surface with sonar-optimized materials
 		const floorGeometry = new THREE.PlaneGeometry(200, 200);
 		const floorMaterial = new THREE.MeshLambertMaterial({
-			color: 0x001122, // Dark blue sonar color
+			color: 0x001122, // Sonar-visible dark blue
 			transparent: true,
 			opacity: 0.9,
 		});
@@ -290,7 +331,7 @@ export class AUVLogic {
 		floor.receiveShadow = true;
 		this.scene.add(floor);
 
-		// Create flooded urban environment with buildings and debris
+		// Generate flooded urban infrastructure
 		this.createFloodedCity();
 
 		// Add search and rescue targets (people/survivors)
@@ -996,6 +1037,10 @@ export class AUVLogic {
 			case "KeyF":
 				this.cycleCameraMode();
 				break;
+			case "Space":
+				this.rescueSurvivor();
+				event.preventDefault(); // Prevent page scrolling
+				break;
 		}
 	}
 
@@ -1213,6 +1258,23 @@ export class AUVLogic {
 		// Add to DOM
 		this.canvas.parentElement.appendChild(this.sonarSystem.canvas);
 
+		// Create toast overlay canvas
+		this.toastCanvas = document.createElement("canvas");
+		this.toastCanvas.style.position = "absolute";
+		this.toastCanvas.style.top = "0";
+		this.toastCanvas.style.left = "0";
+		this.toastCanvas.style.width = "100%";
+		this.toastCanvas.style.height = "100%";
+		this.toastCanvas.style.pointerEvents = "none";
+		this.toastCanvas.style.zIndex = "20"; // Higher than sonar canvas
+		this.toastCanvas.style.display = "block";
+
+		// Get toast canvas context
+		this.toastCtx = this.toastCanvas.getContext("2d");
+
+		// Add toast canvas to DOM
+		this.canvas.parentElement.appendChild(this.toastCanvas);
+
 		// Set canvas size
 		this.updateSonarCanvasSize();
 	}
@@ -1223,6 +1285,12 @@ export class AUVLogic {
 		const rect = this.canvas.getBoundingClientRect();
 		this.sonarSystem.canvas.width = rect.width;
 		this.sonarSystem.canvas.height = rect.height;
+
+		// Also update toast canvas size
+		if (this.toastCanvas) {
+			this.toastCanvas.width = rect.width;
+			this.toastCanvas.height = rect.height;
+		}
 	}
 
 	updateSonarScan() {
@@ -1957,7 +2025,104 @@ export class AUVLogic {
 			ctx.fillText(`Survivors: ${this.searchTargets.length}`, 20, 70);
 		}
 
+		// Search and Rescue Panel
+		ctx.fillStyle = "#ffaa00";
+		ctx.font = "14px monospace";
+		ctx.fillText("SEARCH & RESCUE", 20, 110);
+
+		ctx.font = "12px monospace";
+		ctx.fillStyle = "#ffffff";
+
+		if (this.foundSurvivors.length > 0) {
+			ctx.fillText(
+				`Found Survivors: ${this.foundSurvivors.length}`,
+				20,
+				130
+			);
+			this.foundSurvivors.forEach((survivor, index) => {
+				if (!survivor.rescued) {
+					ctx.fillText(
+						`• Survivor ${index + 1} - Press SPACE to rescue`,
+						20,
+						150 + index * 20
+					);
+				}
+			});
+		} else {
+			ctx.fillText("No survivors found yet", 20, 130);
+		}
+
 		ctx.restore();
+	}
+
+	drawToastMessages() {
+		if (
+			!this.toastCanvas ||
+			!this.toastCtx ||
+			this.rescueMessages.length === 0
+		)
+			return;
+
+		// Clear the toast canvas
+		this.toastCtx.clearRect(
+			0,
+			0,
+			this.toastCanvas.width,
+			this.toastCanvas.height
+		);
+
+		this.toastCtx.save();
+
+		// Draw each rescue message as a toast notification
+		this.rescueMessages.forEach((message, index) => {
+			const currentTime = Date.now();
+			const age = currentTime - message.timestamp;
+			const progress = age / message.duration;
+
+			// Calculate opacity with fade out effect
+			let alpha = 1;
+			if (progress > 0.7) {
+				// Start fading out in the last 30% of duration
+				alpha = 1 - (progress - 0.7) / 0.3;
+			}
+
+			if (alpha <= 0) return;
+
+			// Toast position (centered horizontally, stacked vertically)
+			const toastWidth = 400;
+			const toastHeight = 60;
+			const x = (this.toastCanvas.width - toastWidth) / 2;
+			const y = 100 + index * (toastHeight + 10); // Stack multiple toasts
+
+			// Draw toast background
+			this.toastCtx.fillStyle = `rgba(0, 0, 0, ${0.8 * alpha})`;
+			this.toastCtx.strokeStyle = `rgba(0, 255, 0, ${alpha})`;
+			this.toastCtx.lineWidth = 2;
+
+			// Rounded rectangle background
+			this.drawRoundedRect(
+				this.toastCtx,
+				x,
+				y,
+				toastWidth,
+				toastHeight,
+				10
+			);
+			this.toastCtx.fill();
+			this.toastCtx.stroke();
+
+			// Draw text
+			this.toastCtx.fillStyle = `rgba(0, 255, 0, ${alpha})`;
+			this.toastCtx.font = "bold 18px monospace";
+			this.toastCtx.textAlign = "center";
+			this.toastCtx.fillText(
+				message.text,
+				x + toastWidth / 2,
+				y + toastHeight / 2 + 6
+			);
+		});
+
+		this.toastCtx.restore();
 	}
 
 	worldToScreen(worldPos) {
@@ -2336,8 +2501,8 @@ export class AUVLogic {
 		this.leftHeadlight.position.copy(leftPos);
 		this.rightHeadlight.position.copy(rightPos);
 
-		// Point headlights forward - adjusted for rotated AUV
-		const targetPos = new THREE.Vector3(0, 5, 0); // Y is forward after rotation
+		// Point headlights north (negative Y direction) - LED lights now face north
+		const targetPos = new THREE.Vector3(0, -5, 0); // Changed to negative Y to point north
 		targetPos.applyQuaternion(this.auv.quaternion);
 		targetPos.add(this.auv.position);
 
@@ -2438,9 +2603,12 @@ export class AUVLogic {
 		this.applyCameraModeEffects(); // Apply visual effects based on camera mode
 		this.updateSonarScan(); // Update sonar scanning
 		this.updateRandomEvents(); // Update random events system
+		this.updateFoundSurvivors(); // Update survivor rescue system
 
 		if (this.renderer && this.scene && this.camera) {
 			this.renderer.render(this.scene, this.camera);
+			// Draw toast messages on top of the 3D scene
+			this.drawToastMessages();
 		}
 	}
 
@@ -3085,5 +3253,117 @@ export class AUVLogic {
 					(Date.now() - this.randomEvents.active.startTime)
 			),
 		};
+	}
+
+	rescueSurvivor() {
+		// Find the first found survivor that hasn't been rescued yet
+		const foundSurvivor = this.foundSurvivors.find(
+			(survivor) => survivor && !survivor.rescued
+		);
+
+		if (foundSurvivor) {
+			// Mark as rescued
+			foundSurvivor.rescued = true;
+
+			// Add rescue message
+			this.rescueMessages.push({
+				text: "Survivor location sent to station",
+				timestamp: Date.now(),
+				duration: 3000, // Show message for 3 seconds
+			});
+
+			// Remove from scene
+			if (foundSurvivor.object && foundSurvivor.object.parent) {
+				foundSurvivor.object.parent.remove(foundSurvivor.object);
+			}
+
+			// Remove the beacon if it exists
+			if (
+				foundSurvivor.object.userData.beacon &&
+				foundSurvivor.object.userData.beacon.parent
+			) {
+				foundSurvivor.object.userData.beacon.parent.remove(
+					foundSurvivor.object.userData.beacon
+				);
+			}
+
+			// Remove from search targets
+			this.searchTargets = this.searchTargets.filter(
+				(target) => target !== foundSurvivor.object
+			);
+
+			// Remove from found survivors list
+			this.foundSurvivors = this.foundSurvivors.filter(
+				(survivor) => survivor !== foundSurvivor
+			);
+
+			// Spawn a new survivor
+			this.spawnNewSurvivor();
+		}
+	}
+
+	spawnNewSurvivor() {
+		// Create a new survivor at a random location
+		const angle = Math.random() * Math.PI * 2;
+		const distance = Math.random() * 80 + 20; // 20-100 units from center
+		const x = Math.cos(angle) * distance;
+		const z = Math.sin(angle) * distance;
+		const y = -8.5; // On the ground, same as original survivors
+
+		// Create survivor body (same as original)
+		const bodyGeometry = new THREE.CapsuleGeometry(0.3, 1.5);
+		const bodyMaterial = new THREE.MeshLambertMaterial({
+			color: 0xff4400, // Bright red-orange for survivors
+			emissive: 0x440000, // Red glow to make them visible
+			emissiveIntensity: 0.1,
+		});
+		const survivor = new THREE.Mesh(bodyGeometry, bodyMaterial);
+
+		survivor.position.set(x, y, z);
+		survivor.userData = {
+			type: "survivor",
+			found: false,
+			blinkTimer: 0,
+		};
+
+		// Add beacon light (same as original)
+		const beaconGeometry = new THREE.SphereGeometry(0.1);
+		const beaconMaterial = new THREE.MeshBasicMaterial({
+			color: 0xff0000,
+			transparent: true,
+			opacity: 0.8,
+		});
+		const beacon = new THREE.Mesh(beaconGeometry, beaconMaterial);
+		beacon.position.set(x, y + 1, z);
+
+		// Add to scene and link beacon to survivor
+		this.scene.add(survivor);
+		this.scene.add(beacon);
+		survivor.userData.beacon = beacon;
+
+		// Add to search targets
+		this.searchTargets.push(survivor);
+	}
+
+	updateFoundSurvivors() {
+		// Check for newly found survivors
+		this.searchTargets.forEach((target) => {
+			if (
+				target.userData.type === "survivor" &&
+				target.userData.found &&
+				!this.foundSurvivors.find((fs) => fs.object === target)
+			) {
+				this.foundSurvivors.push({
+					object: target,
+					foundTime: Date.now(),
+					rescued: false,
+				});
+			}
+		});
+
+		// Clean up old rescue messages
+		this.rescueMessages = this.rescueMessages.filter(
+			(msg) => Date.now() - msg.timestamp < msg.duration
+		);
 	}
 }
