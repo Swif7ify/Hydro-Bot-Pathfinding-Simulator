@@ -2489,8 +2489,8 @@ export class AUVLogic {
 		if (!this.auv || !this.leftHeadlight || !this.rightHeadlight) return;
 
 		// Position headlights at the front of the AUV - adjusted for rotated AUV
-		const leftPos = new THREE.Vector3(0.2, 0.8, 0.1); // Adjusted for rotated AUV
-		const rightPos = new THREE.Vector3(-0.2, 0.8, 0.1); // Adjusted for rotated AUV
+		const leftPos = new THREE.Vector3(0.2, -2, 0.1); // Adjusted for rotated AUV
+		const rightPos = new THREE.Vector3(-0.2, -2, 0.1); // Adjusted for rotated AUV
 
 		leftPos.applyQuaternion(this.auv.quaternion);
 		rightPos.applyQuaternion(this.auv.quaternion);
