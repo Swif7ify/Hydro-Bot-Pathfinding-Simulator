@@ -1,601 +1,599 @@
-<template>
-	<div class="hydrobot-gui">
-		<!-- Main Display Area -->
-		<div class="main-display" :class="{ 'screen-shake': screenShake }">
-			<!-- Fullscreen Camera Canvas -->
-			<canvas ref="mainCanvas" id="mainCanvas"></canvas>
+﻿<template>
+	<div class="scene-container">
+		<canvas ref="mainCanvas" id="mainCanvas"></canvas>
 
-			<!-- GUI Overlays -->
-			<div class="gui-overlays">
-				<!-- Left Info Panel -->
-				<div class="left-info-panel">
-					<div class="coordinates-display">
-						<div class="coord-item">
-							<div class="coord-label">LATITUDE</div>
-							<div class="coord-value">{{ latitude }}</div>
-						</div>
-						<div class="coord-item">
-							<div class="coord-label">LONGITUDE</div>
-							<div class="coord-value">{{ longitude }}</div>
-						</div>
-					</div>
-				</div>
+		<!-- Thermal colour-grade overlay (left half in SPLIT, full in THERMAL) -->
+		<div
+			class="thermal-tint"
+			:class="{
+				'tint-full': viewMode === 'thermal',
+				'tint-left': viewMode === 'split',
+				'tint-off': viewMode === 'camera',
+			}"
+		></div>
+		<!-- Split-screen centre divider -->
+		<div v-if="viewMode === 'split'" class="split-divider"></div>
 
-				<!-- Collision Detection Panel -->
-				<div class="collision-panel">
-					<div class="panel-header">
-						<div class="panel-title">AUV STATUS</div>
-						<div
-							class="collision-indicator"
-							:class="{ 'collision-active': collisionActive }"
-						>
-							{{ collisionActive ? "IMPACT" : "CLEAR" }}
-						</div>
-					</div>
+		<!-- ── TOP LEFT ─ Mode selector ──────────────────────────────── -->
+		<div class="hud top-left">
+			<button
+				class="mode-btn"
+				:class="{ active: viewMode === 'thermal' }"
+				@click="setMode('thermal')"
+				title="Thermal"
+			>
+				<svg
+					viewBox="0 0 24 24"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="2"
+				>
+					<path d="M12 2v10m0 0a4 4 0 1 0 0 8 4 4 0 0 0 0-8z" />
+					<line x1="8" y1="6" x2="5" y2="6" />
+					<line x1="8" y1="10" x2="5" y2="10" />
+				</svg>
+			</button>
+			<button
+				class="mode-btn"
+				:class="{ active: viewMode === 'camera' }"
+				@click="setMode('camera')"
+				title="Camera"
+			>
+				<svg
+					viewBox="0 0 24 24"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="2"
+				>
+					<circle cx="12" cy="12" r="3" />
+					<circle cx="12" cy="12" r="8" stroke-dasharray="4 2" />
+					<circle cx="12" cy="12" r="1" fill="currentColor" />
+				</svg>
+			</button>
+			<button
+				class="mode-btn split-btn"
+				:class="{ active: viewMode === 'split' }"
+				@click="setMode('split')"
+				title="Split"
+			>
+				<svg
+					viewBox="0 0 24 24"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="2"
+				>
+					<rect x="2" y="4" width="9" height="16" rx="1" />
+					<rect x="13" y="4" width="9" height="16" rx="1" />
+				</svg>
+				<span>SPLIT</span>
+			</button>
+		</div>
 
-					<!-- AUV Damage Visualization -->
-					<div class="auv-damage-display">
-						<div class="auv-schematic">
-							<!-- AUV Body sections -->
-							<div
-								class="auv-section front"
-								:class="{ damaged: damageStatus.front }"
-							>
-								<span class="section-label">FRONT</span>
-							</div>
-							<div
-								class="auv-section left"
-								:class="{ damaged: damageStatus.left }"
-							>
-								<span class="section-label">PORT</span>
-							</div>
-							<div
-								class="auv-section right"
-								:class="{ damaged: damageStatus.right }"
-							>
-								<span class="section-label">STAR</span>
-							</div>
-							<div
-								class="auv-section back"
-								:class="{ damaged: damageStatus.back }"
-							>
-								<span class="section-label">REAR</span>
-							</div>
-						</div>
-					</div>
-
-					<!-- Recent Collision Log -->
-					<div class="collision-log">
-						<div class="log-header">RECENT IMPACTS</div>
-						<div class="log-entries">
-							<div
-								v-for="(collision, index) in recentCollisions"
-								:key="index"
-								class="log-entry"
-								:class="{ fresh: collision.fresh }"
-							>
-								<span class="collision-time">{{
-									collision.time
-								}}</span>
-								<span class="collision-type">{{
-									collision.type
-								}}</span>
-							</div>
-						</div>
-					</div>
-				</div>
-
-				<!-- Random Events Panel -->
-				<div class="event-panel" v-if="currentEvent">
-					<div class="panel-header">
-						<div class="panel-title">ACTIVE EVENT</div>
-						<div class="event-indicator active">
-							{{ currentEvent.name.toUpperCase() }}
-						</div>
-					</div>
-					<div class="event-details">
-						<div class="event-description">
-							{{ currentEvent.description }}
-						</div>
-						<div class="event-timer">
-							Time Remaining:
-							{{ formatTime(currentEvent.timeRemaining) }}
-						</div>
-					</div>
-				</div>
-
-				<!-- Camera Crosshairs and Info -->
-				<div class="viewport-overlay">
-					<div class="crosshairs">
-						<div class="crosshair-center"></div>
-						<div class="crosshair-line crosshair-horizontal"></div>
-						<div class="crosshair-line crosshair-vertical"></div>
-						<div class="crosshair-circle"></div>
-					</div>
-					<div class="camera-mode-display">
-						<div class="camera-mode-label">
-							{{ cameraMode.toUpperCase() }} CAMERA
-						</div>
-						<div class="camera-mode-hint">
-							Press F to switch modes
-						</div>
-					</div>
-				</div>
-
-				<!-- Right Status Panel -->
-				<div class="right-status-panel">
-					<div class="status-display">
-						<div class="status-header">SYSTEM STATUS</div>
-						<div class="status-items">
-							<div class="status-row">
-								<span class="status-indicator green"></span>
-								<span class="status-text">POWER</span>
-								<span class="status-value"
-									>{{ Math.round(batteryLevel) }}%</span
-								>
-							</div>
-							<div class="status-row">
-								<span class="status-indicator green"></span>
-								<span class="status-text">COMMS</span>
-								<span class="status-value">ONLINE</span>
-							</div>
-							<div class="status-row">
-								<span
-									class="status-indicator"
-									:class="
-										cameraMode === 'sonar'
-											? 'green'
-											: 'orange'
-									"
-								></span>
-								<span class="status-text">SONAR</span>
-								<span class="status-value">{{
-									cameraMode === "sonar"
-										? "ACTIVE"
-										: "STANDBY"
-								}}</span>
-							</div>
-							<div class="status-row">
-								<span
-									class="status-indicator"
-									:class="
-										cameraMode === 'optical'
-											? 'orange'
-											: 'gray'
-									"
-								></span>
-								<span class="status-text">OPTICS</span>
-								<span class="status-value">{{
-									cameraMode === "optical"
-										? "ACTIVE"
-										: "STANDBY"
-								}}</span>
-							</div>
-						</div>
-					</div>
-
-					<div class="environmental-display">
-						<div class="env-header">ENVIRONMENT</div>
-						<div class="env-items">
-							<div class="env-row">
-								<span class="env-label">TEMP:</span>
-								<span class="env-value"
-									>{{ waterTemperature }}°C</span
-								>
-							</div>
-							<div class="env-row">
-								<span class="env-label">PRESSURE:</span>
-								<span class="env-value"
-									>{{ pressure }} BAR</span
-								>
-							</div>
-							<div class="env-row">
-								<span class="env-label">VISIBILITY:</span>
-								<span class="env-value">{{
-									getVisibilityStatus()
-								}}</span>
-							</div>
-						</div>
-					</div>
-
-					<div class="search-rescue-display">
-						<div class="sar-header">SEARCH & RESCUE</div>
-						<div class="sar-items">
-							<div class="sar-row">
-								<span class="sar-label">STATUS:</span>
-								<span
-									class="sar-value"
-									:class="searchStatusClass"
-									>{{ searchStatus }}</span
-								>
-							</div>
-						</div>
-					</div>
-				</div>
-
-				<!-- Top Right: Green WiFi Status Icon -->
-				<div class="wifi-status-icon">
-					<svg
-						viewBox="0 0 16 16"
-						fill="none"
-						xmlns="http://www.w3.org/2000/svg"
-					>
-						<g id="SVGRepo_bgCarrier" stroke-width="0"></g>
-						<g
-							id="SVGRepo_tracerCarrier"
-							stroke-linecap="round"
-							stroke-linejoin="round"
-						></g>
-						<g id="SVGRepo_iconCarrier">
-							<path
-								d="M0 7L1.17157 5.82843C2.98259 4.01741 5.43884 3 8 3C10.5612 3 13.0174 4.01742 14.8284 5.82843L16 7L14.5858 8.41421L13.4142 7.24264C11.9783 5.8067 10.0307 5 8 5C5.96928 5 4.02173 5.8067 2.58579 7.24264L1.41421 8.41421L0 7Z"
-								fill="#00ff88"
-							></path>
-							<path
-								d="M4.24264 11.2426L2.82843 9.82843L4 8.65685C5.06086 7.59599 6.49971 7 8 7C9.50029 7 10.9391 7.59599 12 8.65686L13.1716 9.82843L11.7574 11.2426L10.5858 10.0711C9.89999 9.38527 8.96986 9 8 9C7.03014 9 6.1 9.38527 5.41421 10.0711L4.24264 11.2426Z"
-								fill="#00ff88"
-							></path>
-							<path
-								d="M8 15L5.65685 12.6569L6.82842 11.4853C7.13914 11.1746 7.56057 11 8 11C8.43942 11 8.86085 11.1746 9.17157 11.4853L10.3431 12.6569L8 15Z"
-								fill="#00ff88"
-							></path>
-						</g>
-					</svg>
-				</div>
+		<!-- ── TOP CENTRE ─ Link status ──────────────────────────────── -->
+		<div class="hud top-center">
+			<div class="status-pill">
+				<span class="link-dot" :class="{ linked: connected }"></span>
+				<span class="lbl">LINK</span>
+				<span class="sep">|</span>
+				<svg class="ico" viewBox="0 0 24 24" fill="currentColor">
+					<path d="M13 10V3L4 14h7v7l9-11h-7z" />
+				</svg>
+				<span class="lbl">{{ stats.ping }}ms</span>
+				<span class="sep">|</span>
+				<svg class="ico" viewBox="0 0 24 24" fill="currentColor">
+					<rect
+						x="2"
+						y="16"
+						width="3"
+						height="6"
+						rx="1"
+						:opacity="stats.bars >= 1 ? 1 : 0.25"
+					/>
+					<rect
+						x="7"
+						y="11"
+						width="3"
+						height="11"
+						rx="1"
+						:opacity="stats.bars >= 2 ? 1 : 0.25"
+					/>
+					<rect
+						x="12"
+						y="6"
+						width="3"
+						height="16"
+						rx="1"
+						:opacity="stats.bars >= 3 ? 1 : 0.25"
+					/>
+					<rect
+						x="17"
+						y="2"
+						width="3"
+						height="20"
+						rx="1"
+						:opacity="stats.bars >= 4 ? 1 : 0.25"
+					/>
+				</svg>
+				<span class="lbl">{{ stats.signalLabel }}</span>
 			</div>
 		</div>
 
-		<!-- Bottom Control Panel -->
-		<div class="bottom-panel">
-			<!-- Left: Speed Gauge -->
-			<div class="gauge-section">
-				<div class="gauge main-gauge">
-					<div class="gauge-face">
-						<div class="gauge-scale">
-							<div
-								class="scale-mark"
-								v-for="n in 12"
-								:key="n"
-								:style="{
-									transform:
-										'rotate(' + (n * 30 - 90) + 'deg)',
-								}"
-							></div>
-						</div>
-						<div
-							class="gauge-needle"
-							:style="{
-								transform:
-									'rotate(' +
-									(Math.min(robotSpeed * 20, 240) - 90) +
-									'deg)',
-							}"
-						></div>
-					</div>
-					<div class="gauge-label">{{ robotSpeed.toFixed(1) }}</div>
-					<div class="gauge-unit">KNOTS</div>
-				</div>
+		<!-- ── TOP RIGHT ─ Controller selector ───────────────────────── -->
+		<div class="hud top-right">
+			<button class="icon-btn" :class="{ active: true }" title="Wireless">
+				<svg
+					viewBox="0 0 24 24"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="2"
+				>
+					<path d="M5 12.55A11 11 0 0 1 19 12.55" />
+					<path d="M1.42 9A16 16 0 0 1 22.58 9" />
+					<path d="M8.53 16.11a6 6 0 0 1 6.95 0" />
+					<circle cx="12" cy="20" r="1" fill="currentColor" />
+				</svg>
+			</button>
+			<button class="icon-btn active" title="Signal">
+				<svg
+					viewBox="0 0 24 24"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="2"
+				>
+					<path d="M1.42 9a16 16 0 0 1 21.16 0" />
+					<path d="M5 12.55a11 11 0 0 1 14 0" />
+					<path d="M8.53 16.11a6 6 0 0 1 6.95 0" />
+					<circle cx="12" cy="20" r="1" fill="currentColor" />
+				</svg>
+			</button>
+			<button
+				class="icon-btn"
+				title="Controller"
+				@click="cycleController"
+			>
+				<svg
+					viewBox="0 0 24 24"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="2"
+				>
+					<rect x="2" y="6" width="20" height="12" rx="4" />
+					<circle cx="7" cy="12" r="1.5" fill="currentColor" />
+					<path d="M11 10h2m-1-1v2" />
+					<circle cx="17" cy="12" r="0.5" fill="currentColor" />
+					<circle cx="15" cy="10" r="0.5" fill="currentColor" />
+				</svg>
+			</button>
+		</div>
+
+		<!-- ── BOTTOM CENTRE ─ CPU temp ──────────────────────────────── -->
+		<div class="hud bottom-center">
+			<div class="temp-pill" :class="{ hot: stats.cpuTemp > 70 }">
+				<svg
+					class="ico"
+					viewBox="0 0 24 24"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="1.5"
+				>
+					<rect x="4" y="4" width="16" height="16" rx="2" />
+					<rect x="9" y="9" width="6" height="6" rx="1" />
+					<line x1="9" y1="1" x2="9" y2="4" />
+					<line x1="15" y1="1" x2="15" y2="4" />
+					<line x1="9" y1="20" x2="9" y2="23" />
+					<line x1="15" y1="20" x2="15" y2="23" />
+					<line x1="20" y1="9" x2="23" y2="9" />
+					<line x1="20" y1="15" x2="23" y2="15" />
+					<line x1="1" y1="9" x2="4" y2="9" />
+					<line x1="1" y1="15" x2="4" y2="15" />
+				</svg>
+				<span class="temp-val">{{ stats.cpuTemp }}°C</span>
 			</div>
+		</div>
 
-			<!-- Center: Depth Display with Battery and Temperature -->
-			<div class="depth-section">
-				<div class="depth-display-main">
-					<div class="depth-circle">
-						<div class="depth-value-large">{{ currentDepth }}</div>
-						<div class="depth-unit-large">METERS</div>
-					</div>
-					<div class="depth-label-main">DEPTH</div>
-				</div>
-
-				<!-- Additional Info -->
-				<div class="depth-info">
-					<div class="info-item">
-						<div class="info-label">BAT</div>
-						<div class="info-value">
-							{{ Math.round(batteryLevel) }}%
-						</div>
-					</div>
-					<div class="info-item">
-						<div class="info-label">TEMP</div>
-						<div class="info-value">{{ waterTemperature }}°C</div>
-					</div>
-				</div>
-			</div>
-
-			<!-- Right: Compass -->
-			<div class="compass-section">
-				<div class="compass-display">
-					<div class="compass-circle">
-						<div class="compass-face">
-							<!-- Cardinal directions -->
-							<div class="compass-direction north">N</div>
-							<div class="compass-direction east">E</div>
-							<div class="compass-direction south">S</div>
-							<div class="compass-direction west">W</div>
-
-							<!-- Degree markings -->
-							<div class="degree-marks">
-								<div
-									v-for="n in 36"
-									:key="n"
-									class="degree-mark"
-									:style="{
-										transform: 'rotate(' + n * 10 + 'deg)',
-									}"
-								></div>
-							</div>
-
-							<!-- Compass needle -->
-							<div
-								class="compass-needle"
-								:style="{
-									transform:
-										'rotate(' + compassHeading + 'deg)',
-								}"
-							>
-								<div class="needle-north"></div>
-								<div class="needle-south"></div>
-							</div>
-						</div>
-					</div>
-				</div>
-				<div class="compass-title">COMPASS</div>
+		<!-- ── BOTTOM LEFT ─ D-pad ───────────────────────────────────── -->
+		<div class="hud bottom-left">
+			<div class="dpad">
+				<button
+					class="dp dp-up"
+					@pointerdown.prevent="dpad('w', true)"
+					@pointerup="dpad('w', false)"
+					@pointerleave="dpad('w', false)"
+				>
+					<svg viewBox="0 0 24 24">
+						<path d="M12 5l-8 8h16z" fill="currentColor" />
+					</svg>
+				</button>
+				<button
+					class="dp dp-left"
+					@pointerdown.prevent="dpad('a', true)"
+					@pointerup="dpad('a', false)"
+					@pointerleave="dpad('a', false)"
+				>
+					<svg viewBox="0 0 24 24">
+						<path d="M5 12l8-8v16z" fill="currentColor" />
+					</svg>
+				</button>
+				<div class="dp-center"></div>
+				<button
+					class="dp dp-right"
+					@pointerdown.prevent="dpad('d', true)"
+					@pointerup="dpad('d', false)"
+					@pointerleave="dpad('d', false)"
+				>
+					<svg viewBox="0 0 24 24">
+						<path d="M19 12l-8 8V4z" fill="currentColor" />
+					</svg>
+				</button>
+				<button
+					class="dp dp-down"
+					@pointerdown.prevent="dpad('s', true)"
+					@pointerup="dpad('s', false)"
+					@pointerleave="dpad('s', false)"
+				>
+					<svg viewBox="0 0 24 24">
+						<path d="M12 19l8-8H4z" fill="currentColor" />
+					</svg>
+				</button>
 			</div>
 		</div>
 	</div>
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted } from "vue";
+import { ref, reactive, onMounted, onUnmounted } from "vue";
 import { AUVLogic } from "../composable/auvLogic.js";
 
-/**
- * HYDROBOT AUV Interface State Management
- * Manages the real-time underwater vehicle interface and status displays
- */
-
-// Navigation and positioning data
-const currentTime = ref(new Date().toLocaleTimeString());
-const latitude = ref("0.000000");
-const longitude = ref("0.000000");
-const currentDepth = ref("0.0");
-const batteryLevel = ref(85);
-const robotSpeed = ref(0.0);
-const waterTemperature = ref(24);
-const pressure = ref(1.2);
-const sweepAngle = ref(0);
-const compassHeading = ref(0);
-const cameraMode = ref("optical");
-
-// Search and rescue mission status
-const searchProgress = ref({ found: 0, total: 0 });
-const nearestTarget = ref(null);
-const searchStatus = ref("SEARCHING");
-const searchStatusClass = ref("searching");
-
-// Vehicle integrity monitoring
-const collisionActive = ref(false);
-const damageStatus = ref({
-	front: false,
-	left: false,
-	right: false,
-	back: false,
-});
-const recentCollisions = ref([]);
-const screenShake = ref(false);
-
-// Environmental event tracking
-const currentEvent = ref(null);
-
-// Core simulation engine
-let auvLogic = null;
 const mainCanvas = ref(null);
+let auvLogic = null;
+let statsInterval = null;
 
-// Interface animation controllers
-let sweepInterval = null;
-let timeInterval = null;
-let updateInterval = null;
+const viewMode = ref("split");
+const connected = ref(true);
+const stats = reactive({
+	ping: 16,
+	cpuTemp: 58.0,
+	signalLabel: "STRONG",
+	bars: 3,
+});
 
-/**
- * Updates the system clock display
- * Called every second to maintain accurate time representation
- */
-const updateTime = () => {
-	currentTime.value = new Date().toLocaleTimeString();
-};
+function setMode(mode) {
+	viewMode.value = mode;
+	auvLogic?.setMode(mode);
+}
 
-/**
- * Animates the sonar sweep indicator
- * Provides visual feedback for active sonar scanning operations
- */
-const animateSweep = () => {
-	sweepAngle.value = (sweepAngle.value + 2) % 360;
-};
+function dpad(key, pressed) {
+	auvLogic?.dpadInput(key, pressed);
+}
 
-/**
- * Formats milliseconds to readable time format (mm:ss)
- * Used for displaying event countdowns and mission timers
- * @param {number} milliseconds - Time value to format
- * @returns {string} Formatted time string
- */
-const formatTime = (milliseconds) => {
-	const totalSeconds = Math.floor(milliseconds / 1000);
-	const minutes = Math.floor(totalSeconds / 60);
-	const seconds = totalSeconds % 60;
-	return `${minutes}:${seconds.toString().padStart(2, "0")}`;
-};
-
-/**
- * Main interface update cycle
- * Synchronizes all GUI elements with the AUV simulation state
- * Called at 10Hz for smooth real-time updates
- */
-const updateGUIFromAUV = () => {
-	if (auvLogic) {
-		const position = auvLogic.getPosition();
-		const speed = auvLogic.getSpeed();
-		const depth = auvLogic.getDepth();
-		const heading = auvLogic.getHeading();
-		const rotation = auvLogic.getRotation();
-
-		// Convert simulation coordinates to geographic coordinates (NYC reference point)
-		latitude.value = (40.7128 + position.x * 0.0001).toFixed(6);
-		longitude.value = (-74.006 + position.z * 0.0001).toFixed(6);
-
-		// Update vehicle depth reading
-		currentDepth.value = depth.toFixed(1);
-
-		// Update vehicle speed in knots
-		robotSpeed.value = speed;
-
-		// Calculate compass heading from vehicle rotation
-		// Convert Z rotation to magnetic compass bearing (0° = North, 90° = East)
-		let rotationDegrees = (rotation.z * 180) / Math.PI;
-		compassHeading.value = (360 - rotationDegrees) % 360;
-
-		// Update active camera system mode
-		cameraMode.value = auvLogic.getCameraMode();
-
-		// Calculate environmental conditions based on depth
-		waterTemperature.value = Math.max(4, 24 - Math.floor(depth * 2)); // Temperature decreases with depth
-		pressure.value = (1 + depth * 0.1).toFixed(1); // Pressure increases with depth
-
-		// Simulate battery consumption during operation
-		if (speed > 0) {
-			batteryLevel.value = Math.max(0, batteryLevel.value - 0.01);
-		}
-
-		// Update mission progress and target data
-		searchProgress.value = auvLogic.getSearchProgress();
-		nearestTarget.value = auvLogic.getNearestTarget();
-
-		// Process collision detection and damage assessment
-		const collisionData = auvLogic.getCollisionData();
-		if (collisionData) {
-			collisionActive.value = collisionData.active;
-			damageStatus.value = collisionData.damageStatus;
-
-			// Log new collision events for operator awareness
-			if (collisionData.newCollision) {
-				addCollisionToLog(collisionData.newCollision);
-				triggerScreenShake();
-			}
-		}
-
-		// Update search status
-		if (
-			searchProgress.value.found === searchProgress.value.total &&
-			searchProgress.value.total > 0
-		) {
-			searchStatus.value = "COMPLETE";
-			searchStatusClass.value = "complete";
-		} else if (searchProgress.value.found > 0) {
-			searchStatus.value = "IN PROGRESS";
-			searchStatusClass.value = "in-progress";
-		} else {
-			searchStatus.value = "SEARCHING";
-			searchStatusClass.value = "searching";
-		}
-
-		// Update active environmental events
-		const eventDescription = auvLogic.getEventDescription();
-		currentEvent.value = eventDescription;
-	}
-};
-
-/**
- * Calculates visibility conditions based on current sensor mode and depth
- * Accounts for underwater light attenuation and sonar effectiveness
- * @returns {string} Visibility status description
- */
-const getVisibilityStatus = () => {
-	if (!auvLogic) return "UNKNOWN";
-
-	const depth = parseFloat(currentDepth.value);
-	const mode = cameraMode.value;
-
-	if (mode === "sonar") {
-		// Sonar maintains effectiveness at greater depths
-		return depth < 5 ? "EXCELLENT" : "GOOD";
-	} else {
-		// Optical visibility degrades rapidly with depth due to light attenuation
-		if (depth < 2) return "EXCELLENT";
-		if (depth < 5) return "GOOD";
-		if (depth < 8) return "POOR";
-		return "LIMITED";
-	}
-};
-
-/**
- * Records and displays collision events in the operator log
- * Maintains a rolling history of the most recent impacts
- * @param {Object} collision - Collision event data including type and direction
- */
-const addCollisionToLog = (collision) => {
-	const now = new Date();
-	const timeStr = now.toLocaleTimeString().slice(0, 8);
-
-	const newCollision = {
-		time: timeStr,
-		type: collision.type.toUpperCase(),
-		direction: collision.direction,
-		fresh: true,
-	};
-
-	recentCollisions.value.unshift(newCollision);
-
-	// Maintain maximum of 5 collision entries for display clarity
-	if (recentCollisions.value.length > 5) {
-		recentCollisions.value.pop();
-	}
-
-	// Clear visual highlight after brief display period
-	setTimeout(() => {
-		newCollision.fresh = false;
-	}, 3000);
-};
-
-/**
- * Provides visual feedback for significant collision events
- * Creates temporary screen shake effect to alert operator
- */
-const triggerScreenShake = () => {
-	screenShake.value = true;
-	setTimeout(() => {
-		screenShake.value = false;
-	}, 500);
-};
+function cycleController() {
+	/* future: keyboard / gamepad switch */
+}
 
 onMounted(() => {
-	// Ensure DOM elements are fully rendered before initialization
 	setTimeout(() => {
-		// Initialize the AUV simulation engine
 		if (mainCanvas.value) {
 			try {
 				auvLogic = new AUVLogic(mainCanvas.value);
-				console.log("AUV Logic initialized successfully");
-			} catch (error) {
-				console.error("Error initializing AUV Logic:", error);
+				// Sync default mode
+				auvLogic.setMode(viewMode.value);
+			} catch (e) {
+				console.error("Sim init error:", e);
 			}
-		} else {
-			console.error("Canvas not found");
 		}
+		// Poll stats from simulation every 400 ms
+		statsInterval = setInterval(() => {
+			if (!auvLogic) return;
+			const s = auvLogic.getStats();
+			stats.ping = s.ping;
+			stats.cpuTemp = s.cpuTemp;
+			stats.signalLabel = s.signalLabel;
+			stats.bars = s.bars;
+		}, 400);
 	}, 100);
-
-	// Start interface update cycles
-	timeInterval = setInterval(updateTime, 1000);
-	sweepInterval = setInterval(animateSweep, 50);
-	updateInterval = setInterval(updateGUIFromAUV, 100);
-
-	updateTime();
 });
 
 onUnmounted(() => {
-	// Clean up all active intervals to prevent memory leaks
-	if (timeInterval) clearInterval(timeInterval);
-	if (sweepInterval) clearInterval(sweepInterval);
-	if (updateInterval) clearInterval(updateInterval);
+	clearInterval(statsInterval);
+	auvLogic?.dispose();
 });
 </script>
 
 <style scoped src="../assets/home.css"></style>
+
+<style scoped>
+/* ── HUD base ────────────────────────────────────────────────── */
+.hud {
+	position: absolute;
+	z-index: 10;
+	pointer-events: none;
+	user-select: none;
+}
+.hud button,
+.hud .dpad {
+	pointer-events: all;
+}
+
+/* ── Positions ───────────────────────────────────────────────── */
+.top-left {
+	top: 18px;
+	left: 18px;
+	display: flex;
+	gap: 6px;
+	align-items: center;
+}
+.top-center {
+	top: 18px;
+	left: 50%;
+	transform: translateX(-50%);
+}
+.top-right {
+	top: 14px;
+	right: 14px;
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	align-items: center;
+}
+.bottom-center {
+	bottom: 22px;
+	left: 50%;
+	transform: translateX(-50%);
+}
+.bottom-left {
+	bottom: 20px;
+	left: 20px;
+}
+
+/* ── Mode buttons (top-left) ─────────────────────────────────── */
+.mode-btn {
+	display: flex;
+	align-items: center;
+	gap: 5px;
+	background: rgba(20, 22, 28, 0.72);
+	border: 1.5px solid rgba(255, 255, 255, 0.18);
+	border-radius: 999px;
+	color: rgba(255, 255, 255, 0.65);
+	padding: 6px 12px;
+	font-size: 11px;
+	font-weight: 600;
+	letter-spacing: 0.05em;
+	cursor: pointer;
+	backdrop-filter: blur(8px);
+	transition:
+		background 0.15s,
+		color 0.15s,
+		border-color 0.15s;
+}
+.mode-btn svg {
+	width: 16px;
+	height: 16px;
+}
+.mode-btn:hover {
+	background: rgba(40, 44, 54, 0.9);
+	color: #fff;
+}
+.mode-btn.active {
+	background: rgba(28, 168, 82, 0.22);
+	border-color: #1ca852;
+	color: #2edb72;
+}
+.split-btn {
+	padding: 6px 14px;
+}
+
+/* ── Status pill (top-center) ────────────────────────────────── */
+.status-pill {
+	display: flex;
+	align-items: center;
+	gap: 7px;
+	background: rgba(20, 22, 28, 0.72);
+	border: 1.5px solid rgba(255, 255, 255, 0.18);
+	border-radius: 999px;
+	padding: 7px 18px;
+	backdrop-filter: blur(8px);
+	color: #2edb72;
+	font-size: 11px;
+	font-weight: 700;
+	letter-spacing: 0.06em;
+	white-space: nowrap;
+}
+.link-dot {
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	background: #666;
+	transition: background 0.3s;
+}
+.link-dot.linked {
+	background: #2edb72;
+	box-shadow: 0 0 6px #2edb72;
+}
+.ico {
+	width: 14px;
+	height: 14px;
+}
+.sep {
+	color: rgba(255, 255, 255, 0.25);
+	font-weight: 300;
+}
+.lbl {
+	color: #fff;
+}
+
+/* ── Icon buttons (top-right) ────────────────────────────────── */
+.icon-btn {
+	width: 42px;
+	height: 42px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	background: rgba(20, 22, 28, 0.72);
+	border: 1.5px solid rgba(255, 255, 255, 0.18);
+	border-radius: 12px;
+	color: rgba(255, 255, 255, 0.6);
+	cursor: pointer;
+	backdrop-filter: blur(8px);
+	transition:
+		background 0.15s,
+		color 0.15s;
+}
+.icon-btn svg {
+	width: 20px;
+	height: 20px;
+}
+.icon-btn.active {
+	background: rgba(28, 168, 82, 0.22);
+	border-color: #1ca852;
+	color: #2edb72;
+}
+.icon-btn:hover {
+	background: rgba(40, 44, 54, 0.9);
+	color: #fff;
+}
+
+/* ── Temp pill (bottom-center) ───────────────────────────────── */
+.temp-pill {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	background: rgba(20, 22, 28, 0.72);
+	border: 1.5px solid rgba(255, 255, 255, 0.18);
+	border-radius: 999px;
+	padding: 6px 18px;
+	backdrop-filter: blur(8px);
+	color: #fff;
+	font-size: 13px;
+	font-weight: 700;
+	white-space: nowrap;
+}
+.temp-pill .ico {
+	width: 18px;
+	height: 18px;
+	color: #f97316;
+}
+.temp-pill.hot .ico {
+	color: #ef4444;
+}
+.temp-val {
+	color: #f97316;
+}
+.temp-pill.hot .temp-val {
+	color: #ef4444;
+	animation: pulse 0.8s ease infinite alternate;
+}
+@keyframes pulse {
+	from {
+		opacity: 1;
+	}
+	to {
+		opacity: 0.6;
+	}
+}
+
+/* ── D-pad (bottom-left) ─────────────────────────────────────── */
+.dpad {
+	width: 128px;
+	height: 128px;
+	background: rgba(12, 14, 20, 0.8);
+	border-radius: 50%;
+	border: 1.5px solid rgba(255, 255, 255, 0.12);
+	backdrop-filter: blur(10px);
+	position: relative;
+}
+.dp {
+	position: absolute;
+	width: 38px;
+	height: 38px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	background: transparent;
+	border: none;
+	color: rgba(255, 255, 255, 0.6);
+	cursor: pointer;
+	border-radius: 6px;
+	transition:
+		color 0.1s,
+		background 0.1s;
+}
+.dp svg {
+	width: 18px;
+	height: 18px;
+}
+.dp:active,
+.dp:hover {
+	color: #fff;
+	background: rgba(255, 255, 255, 0.1);
+}
+.dp-up {
+	top: 8px;
+	left: 50%;
+	transform: translateX(-50%);
+}
+.dp-down {
+	bottom: 8px;
+	left: 50%;
+	transform: translateX(-50%);
+}
+.dp-left {
+	left: 8px;
+	top: 50%;
+	transform: translateY(-50%);
+}
+.dp-right {
+	right: 8px;
+	top: 50%;
+	transform: translateY(-50%);
+}
+.dp-center {
+	position: absolute;
+	width: 14px;
+	height: 14px;
+	background: rgba(100, 120, 160, 0.6);
+	border-radius: 50%;
+	top: 50%;
+	left: 50%;
+	transform: translate(-50%, -50%);
+	box-shadow: 0 0 6px rgba(100, 140, 255, 0.4);
+}
+
+/* ── Split divider ───────────────────────────────────────────── */
+.split-divider {
+	position: absolute;
+	top: 0;
+	bottom: 0;
+	left: 50%;
+	width: 2px;
+	background: rgba(255, 255, 255, 0.2);
+	z-index: 8;
+	pointer-events: none;
+}
+
+/* ── Thermal tint overlay ─────────────────────────────────────── */
+.thermal-tint {
+	position: absolute;
+	top: 0;
+	left: 0;
+	width: 50%;
+	height: 100%;
+	pointer-events: none;
+	z-index: 6;
+	mix-blend-mode: color;
+	background: radial-gradient(
+		ellipse at 40% 50%,
+		rgba(255, 60, 30, 0.85) 0%,
+		rgba(200, 0, 60, 0.75) 50%,
+		rgba(140, 0, 80, 0.65) 100%
+	);
+	transition:
+		width 0.2s,
+		opacity 0.2s;
+}
+.thermal-tint.tint-full {
+	width: 100%;
+}
+.thermal-tint.tint-off {
+	opacity: 0;
+}
+</style>
