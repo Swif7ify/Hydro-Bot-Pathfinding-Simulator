@@ -41,6 +41,16 @@ export class AUVLogic {
 
 		this.keys = { w: false, a: false, s: false, d: false };
 
+		// Thermal detection
+		this.thermalObjects = [];
+		this.menuOpen = false;
+		this.onMenuToggle = null;
+		this._ambientLight = null;
+		this._coldMat = null;
+		this._matBackup = null;
+		this._thermalGridScene = null;
+		this._thermalGridCam = null;
+
 		this.init();
 		this.setupEventListeners();
 		this.animate();
@@ -100,13 +110,16 @@ export class AUVLogic {
 		this.createScenery();
 		this.initWakeParticles();
 		this.loadRobot();
+		this.createUnderwaterObjects();
+		this._createThermalGrid();
 	}
 
 	// ===================================================================
 	//  Lighting
 	// ===================================================================
 	setupLighting() {
-		this.scene.add(new THREE.AmbientLight(0xffffff, 0.5));
+		this._ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+		this.scene.add(this._ambientLight);
 
 		const sun = new THREE.DirectionalLight(0xfff8e7, 1.2);
 		sun.position.set(30, 60, 40);
@@ -902,6 +915,237 @@ export class AUVLogic {
 		this.buildPlaceholder();
 	}
 
+	// ===================================================================
+	//  Underwater thermal objects
+	// ===================================================================
+	createUnderwaterObjects() {
+		const FY = -4.8; // just above pool floor (floor at y=-5)
+		const defs = [
+			{
+				label: "HOT VENT",
+				tempC: 89,
+				heat: 0.92,
+				geo: new THREE.CylinderGeometry(0.5, 0.6, 0.4, 12),
+				normal: 0x444444,
+				x: 3,
+				z: 5,
+			},
+			{
+				label: "BIO MASS",
+				tempC: 34,
+				heat: 0.52,
+				geo: new THREE.SphereGeometry(0.55, 10, 8),
+				normal: 0x1a3a10,
+				x: -5,
+				z: -8,
+			},
+			{
+				label: "CHEM DRUM",
+				tempC: 61,
+				heat: 0.73,
+				geo: new THREE.CylinderGeometry(0.35, 0.35, 0.9, 14),
+				normal: 0x6b3010,
+				x: 7,
+				z: -4,
+			},
+			{
+				label: "METAL PLATE",
+				tempC: 12,
+				heat: 0.1,
+				geo: new THREE.BoxGeometry(1.4, 0.1, 1.4),
+				normal: 0x8a8a8a,
+				x: -3,
+				z: 12,
+			},
+			{
+				label: "WARM PIPE",
+				tempC: 54,
+				heat: 0.65,
+				geo: new THREE.CylinderGeometry(0.15, 0.15, 2.4, 10),
+				normal: 0x555555,
+				x: 0,
+				z: -16,
+			},
+			{
+				label: "COOL ROCK",
+				tempC: 18,
+				heat: 0.22,
+				geo: new THREE.DodecahedronGeometry(0.45, 0),
+				normal: 0x5a4a3a,
+				x: -8,
+				z: 3,
+			},
+		];
+
+		for (const d of defs) {
+			const normalMat = new THREE.MeshStandardMaterial({
+				color: d.normal,
+				roughness: 0.8,
+				metalness: 0.3,
+			});
+			const tc = this._heatColor(d.heat);
+			const thermalMat = new THREE.MeshStandardMaterial({
+				color: tc,
+				emissive: tc,
+				emissiveIntensity: 0.9 + d.heat * 0.8,
+				roughness: 0.1,
+				metalness: 0.0,
+			});
+			const mesh = new THREE.Mesh(d.geo, normalMat);
+			mesh.position.set(d.x, FY, d.z);
+			if (d.label === "WARM PIPE") mesh.rotation.z = Math.PI / 2;
+			mesh.castShadow = mesh.receiveShadow = true;
+			this.scene.add(mesh);
+			this.thermalObjects.push({
+				mesh,
+				normalMat,
+				thermalMat,
+				heat: d.heat,
+				label: d.label,
+				tempC: d.tempC,
+			});
+		}
+	}
+
+	_heatColor(h) {
+		const stops = [
+			[0.0, new THREE.Color(0x000011)],
+			[0.2, new THREE.Color(0x1a0066)],
+			[0.35, new THREE.Color(0x0055cc)],
+			[0.5, new THREE.Color(0x00ccaa)],
+			[0.62, new THREE.Color(0x00ff44)],
+			[0.72, new THREE.Color(0xddff00)],
+			[0.82, new THREE.Color(0xff8800)],
+			[0.9, new THREE.Color(0xff2200)],
+			[1.0, new THREE.Color(0xffffff)],
+		];
+		for (let i = 0; i < stops.length - 1; i++) {
+			const [t0, c0] = stops[i],
+				[t1, c1] = stops[i + 1];
+			if (h >= t0 && h <= t1)
+				return c0.clone().lerp(c1, (h - t0) / (t1 - t0));
+		}
+		return new THREE.Color(0xffffff);
+	}
+
+	_enterThermalRender() {
+		this._savedBg = this.scene.background;
+		this._savedFog = this.scene.fog;
+		this._savedAmbient = this._ambientLight
+			? this._ambientLight.intensity
+			: 0.5;
+
+		// Swap every non-thermal mesh to the flat cold material
+		this._matBackup = new Map();
+		const hotSet = new Set(this.thermalObjects.map((o) => o.mesh));
+		this.scene.traverse((obj) => {
+			if (!obj.isMesh || hotSet.has(obj)) return;
+			this._matBackup.set(obj, obj.material);
+			obj.material = this._coldMat;
+		});
+
+		// Thermal objects → grid-silhouette heat materials
+		for (const o of this.thermalObjects) o.mesh.material = o.thermalMat;
+
+		this.scene.background = new THREE.Color(0x000c18);
+		this.scene.fog = null;
+		if (this._ambientLight) this._ambientLight.intensity = 0.06;
+		if (this.waterMesh) this.waterMesh.visible = true;
+		if (this.rippleMesh) this.rippleMesh.visible = true;
+	}
+
+	_exitThermalRender() {
+		this.scene.background = this._savedBg;
+		this.scene.fog = this._savedFog;
+		if (this._ambientLight)
+			this._ambientLight.intensity = this._savedAmbient;
+		if (this._matBackup) {
+			this._matBackup.forEach((mat, mesh) => {
+				mesh.material = mat;
+			});
+			this._matBackup = null;
+		}
+	}
+
+	_createThermalGrid() {
+		// ── Grid emissive map for thermal object silhouettes ──────────────
+		// White lines on black canvas: emissiveMap × emissive heat color
+		// → only grid lines glow, between-line areas are pitch black
+		const gS = 256,
+			gC = 22;
+		const gcv = document.createElement("canvas");
+		gcv.width = gcv.height = gS;
+		const gctx = gcv.getContext("2d");
+		gctx.fillStyle = "#000";
+		gctx.fillRect(0, 0, gS, gS);
+		gctx.strokeStyle = "#ffffff";
+		gctx.lineWidth = 1.8;
+		for (let x = 0; x <= gS; x += gC) {
+			gctx.beginPath();
+			gctx.moveTo(x, 0);
+			gctx.lineTo(x, gS);
+			gctx.stroke();
+		}
+		for (let y = 0; y <= gS; y += gC) {
+			gctx.beginPath();
+			gctx.moveTo(0, y);
+			gctx.lineTo(gS, y);
+			gctx.stroke();
+		}
+		const gridTex = new THREE.CanvasTexture(gcv);
+		gridTex.wrapS = gridTex.wrapT = THREE.RepeatWrapping;
+		gridTex.repeat.set(4, 4);
+
+		// Patch every thermalMat: fill → black, only grid lines emit heat color
+		for (const o of this.thermalObjects) {
+			o.thermalMat.color.set(0x000000);
+			o.thermalMat.emissiveMap = gridTex;
+			o.thermalMat.emissiveIntensity = 1.8 + o.heat * 1.2;
+			o.thermalMat.needsUpdate = true;
+		}
+
+		// ── Fullscreen scan-line overlay rendered additively on top ───────
+		const S = 512,
+			C = 20;
+		const cv = document.createElement("canvas");
+		cv.width = cv.height = S;
+		const ctx = cv.getContext("2d");
+		ctx.clearRect(0, 0, S, S);
+		ctx.strokeStyle = "rgba(0,230,200,0.15)";
+		ctx.lineWidth = 0.6;
+		for (let x = 0; x <= S; x += C) {
+			ctx.beginPath();
+			ctx.moveTo(x, 0);
+			ctx.lineTo(x, S);
+			ctx.stroke();
+		}
+		for (let y = 0; y <= S; y += C) {
+			ctx.beginPath();
+			ctx.moveTo(0, y);
+			ctx.lineTo(S, y);
+			ctx.stroke();
+		}
+		const scanTex = new THREE.CanvasTexture(cv);
+		scanTex.wrapS = scanTex.wrapT = THREE.RepeatWrapping;
+		scanTex.repeat.set(5, 5);
+
+		this._thermalGridScene = new THREE.Scene();
+		this._thermalGridCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+		const overlayMat = new THREE.MeshBasicMaterial({
+			map: scanTex,
+			transparent: true,
+			blending: THREE.AdditiveBlending,
+			depthWrite: false,
+			depthTest: false,
+		});
+		this._thermalGridScene.add(
+			new THREE.Mesh(new THREE.PlaneGeometry(2, 2), overlayMat),
+		);
+
+		// Flat cold material for all non-thermal scene meshes
+		this._coldMat = new THREE.MeshBasicMaterial({ color: 0x001a20 });
+	}
+
 	buildPlaceholder() {
 		const g = new THREE.Group();
 
@@ -1062,6 +1306,16 @@ export class AUVLogic {
 		window.addEventListener("keydown", this._kd);
 		window.addEventListener("keyup", this._ku);
 		window.addEventListener("resize", this._resize);
+
+		// ESC — menu toggle
+		this._escKd = (e) => {
+			if (e.key === "Escape") {
+				e.preventDefault();
+				this.menuOpen = !this.menuOpen;
+				if (this.onMenuToggle) this.onMenuToggle(this.menuOpen);
+			}
+		};
+		window.addEventListener("keydown", this._escKd);
 	}
 
 	// ===================================================================
@@ -1090,11 +1344,45 @@ export class AUVLogic {
 		return { ping, cpuTemp, signalLabel, bars };
 	}
 
+	getHotTarget() {
+		if (!this.thermalCamera || !this.thermalObjects.length) return null;
+		const frustum = new THREE.Frustum();
+		const projMat = new THREE.Matrix4().multiplyMatrices(
+			this.thermalCamera.projectionMatrix,
+			this.thermalCamera.matrixWorldInverse,
+		);
+		frustum.setFromProjectionMatrix(projMat);
+		let best = null;
+		const wp = new THREE.Vector3();
+		for (const o of this.thermalObjects) {
+			o.mesh.getWorldPosition(wp);
+			if (!frustum.containsPoint(wp)) continue;
+			if (!best || o.heat > best.heat) best = { ...o, _wp: wp.clone() };
+		}
+		if (!best) return null;
+		const ndc = best._wp.clone().project(this.thermalCamera);
+		return {
+			vx: (ndc.x + 1) / 2,
+			vy: 1 - (ndc.y + 1) / 2,
+			heat: best.heat,
+			label: best.label,
+			tempC: best.tempC,
+		};
+	}
+
+	setPaused(v) {
+		this.menuOpen = v;
+	}
+	isMenuOpen() {
+		return this.menuOpen;
+	}
+
 	// ===================================================================
 	//  Physics
 	// ===================================================================
 	updatePhysics() {
 		if (!this.auv) return;
+		if (this.menuOpen) return; // paused
 		if (this.keys.w) this.linearVelocity += this.thrustPower;
 		if (this.keys.s) this.linearVelocity -= this.thrustPower;
 		if (this.keys.d) this.angularVelocity += this.turnPower;
@@ -1202,12 +1490,16 @@ export class AUVLogic {
 			r.setScissorTest(true);
 			r.clear(true, true, true);
 
-			// Left half — thermal (below-water looking down)
+			// Left half — THERMAL (below-water looking down)
+			this._enterThermalRender();
 			r.setViewport(0, 0, W / 2, H);
 			r.setScissor(0, 0, W / 2, H);
 			this.thermalCamera.aspect = W / 2 / H;
 			this.thermalCamera.updateProjectionMatrix();
 			r.render(this.scene, this.thermalCamera);
+			if (this._thermalGridScene)
+				r.render(this._thermalGridScene, this._thermalGridCam);
+			this._exitThermalRender();
 
 			// Right half — robot front cam
 			r.clearDepth();
@@ -1224,11 +1516,16 @@ export class AUVLogic {
 			r.setViewport(0, 0, W, H);
 			let cam;
 			if (this.viewMode === "camera") cam = this.robotCamera;
-			else if (this.viewMode === "thermal") cam = this.thermalCamera;
-			else cam = this.camera;
+			else if (this.viewMode === "thermal") {
+				this._enterThermalRender();
+				cam = this.thermalCamera;
+			} else cam = this.camera;
 			cam.aspect = W / H;
 			cam.updateProjectionMatrix();
 			r.render(this.scene, cam);
+			if (this.viewMode === "thermal" && this._thermalGridScene)
+				r.render(this._thermalGridScene, this._thermalGridCam);
+			if (this.viewMode === "thermal") this._exitThermalRender();
 		}
 	}
 
@@ -1239,6 +1536,7 @@ export class AUVLogic {
 		window.removeEventListener("keydown", this._kd);
 		window.removeEventListener("keyup", this._ku);
 		window.removeEventListener("resize", this._resize);
+		window.removeEventListener("keydown", this._escKd);
 		if (this.renderer) this.renderer.dispose();
 	}
 }
