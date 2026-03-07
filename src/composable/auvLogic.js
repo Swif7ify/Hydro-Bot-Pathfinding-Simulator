@@ -112,6 +112,32 @@ export class AUVLogic {
 		this.loadRobot();
 		this.createUnderwaterObjects();
 		this._createThermalGrid();
+		this._createThermalPixelRT();
+	}
+
+	// Low-res render target + blit quad for thermal pixelation
+	_createThermalPixelRT() {
+		// Pixelation factor — lower = chunkier pixels
+		this._thermalPixelDiv = 4;
+		const cw = this.canvas.clientWidth;
+		const ch = this.canvas.clientHeight;
+		const w = Math.floor(cw / this._thermalPixelDiv) || 1;
+		const h = Math.floor(ch / this._thermalPixelDiv) || 1;
+		this._thermalRT = new THREE.WebGLRenderTarget(w, h, {
+			minFilter: THREE.NearestFilter,
+			magFilter: THREE.NearestFilter,
+		});
+		// Fullscreen quad to blit the low-res texture
+		this._thermalBlitScene = new THREE.Scene();
+		this._thermalBlitCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+		this._thermalBlitMat = new THREE.MeshBasicMaterial({
+			map: this._thermalRT.texture,
+			depthWrite: false,
+			depthTest: false,
+		});
+		this._thermalBlitScene.add(
+			new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this._thermalBlitMat),
+		);
 	}
 
 	// ===================================================================
@@ -255,14 +281,14 @@ export class AUVLogic {
 		addBox(dW, dH, IL, -(oHW + dW / 2), dY, 0, deckMat);
 
 		// Grass ground — kept at y=-0.1 so it never z-fights with the water surface
-		const gnd = new THREE.Mesh(
+		this._grassMesh = new THREE.Mesh(
 			new THREE.PlaneGeometry(600, 600),
 			this.mat(0x5a8045, 0.95),
 		);
-		gnd.rotation.x = -Math.PI / 2;
-		gnd.position.y = -0.1;
-		gnd.receiveShadow = true;
-		this.scene.add(gnd);
+		this._grassMesh.rotation.x = -Math.PI / 2;
+		this._grassMesh.position.y = -0.1;
+		this._grassMesh.receiveShadow = true;
+		this.scene.add(this._grassMesh);
 
 		// Main water — coarse 16×16 for ambient waves over the whole pool (256 verts)
 		const waterGeo = new THREE.PlaneGeometry(IW - 0.12, IL - 0.12, 16, 16);
@@ -984,12 +1010,9 @@ export class AUVLogic {
 				metalness: 0.3,
 			});
 			const tc = this._heatColor(d.heat);
-			const thermalMat = new THREE.MeshStandardMaterial({
-				color: tc,
-				emissive: tc,
-				emissiveIntensity: 0.9 + d.heat * 0.8,
-				roughness: 0.1,
-				metalness: 0.0,
+			// MeshBasicMaterial: full solid shape rendered in heat color, no lighting
+			const thermalMat = new THREE.MeshBasicMaterial({
+				color: tc.clone(),
 			});
 			const mesh = new THREE.Mesh(d.geo, normalMat);
 			mesh.position.set(d.x, FY, d.z);
@@ -1000,6 +1023,7 @@ export class AUVLogic {
 				mesh,
 				normalMat,
 				thermalMat,
+				heatColor: tc.clone(),
 				heat: d.heat,
 				label: d.label,
 				tempC: d.tempC,
@@ -1008,16 +1032,17 @@ export class AUVLogic {
 	}
 
 	_heatColor(h) {
+		// Red-only thermal palette: dark red → red → light red/white
 		const stops = [
-			[0.0, new THREE.Color(0x000011)],
-			[0.2, new THREE.Color(0x1a0066)],
-			[0.35, new THREE.Color(0x0055cc)],
-			[0.5, new THREE.Color(0x00ccaa)],
-			[0.62, new THREE.Color(0x00ff44)],
-			[0.72, new THREE.Color(0xddff00)],
-			[0.82, new THREE.Color(0xff8800)],
-			[0.9, new THREE.Color(0xff2200)],
-			[1.0, new THREE.Color(0xffffff)],
+			[0.0, new THREE.Color(0x1a0000)],
+			[0.15, new THREE.Color(0x330000)],
+			[0.3, new THREE.Color(0x660000)],
+			[0.45, new THREE.Color(0x990000)],
+			[0.6, new THREE.Color(0xcc0000)],
+			[0.75, new THREE.Color(0xff0000)],
+			[0.85, new THREE.Color(0xff3333)],
+			[0.95, new THREE.Color(0xff6666)],
+			[1.0, new THREE.Color(0xff9999)],
 		];
 		for (let i = 0; i < stops.length - 1; i++) {
 			const [t0, c0] = stops[i],
@@ -1038,8 +1063,10 @@ export class AUVLogic {
 		// Swap every non-thermal mesh to the flat cold material
 		this._matBackup = new Map();
 		const hotSet = new Set(this.thermalObjects.map((o) => o.mesh));
+		const skipSet = new Set();
+		if (this._thermalFloor) skipSet.add(this._thermalFloor);
 		this.scene.traverse((obj) => {
-			if (!obj.isMesh || hotSet.has(obj)) return;
+			if (!obj.isMesh || hotSet.has(obj) || skipSet.has(obj)) return;
 			this._matBackup.set(obj, obj.material);
 			obj.material = this._coldMat;
 		});
@@ -1047,11 +1074,15 @@ export class AUVLogic {
 		// Thermal objects → grid-silhouette heat materials
 		for (const o of this.thermalObjects) o.mesh.material = o.thermalMat;
 
-		this.scene.background = new THREE.Color(0x000c18);
+		this.scene.background = new THREE.Color(0x000810);
 		this.scene.fog = null;
-		if (this._ambientLight) this._ambientLight.intensity = 0.06;
-		if (this.waterMesh) this.waterMesh.visible = true;
-		if (this.rippleMesh) this.rippleMesh.visible = true;
+		if (this._ambientLight) this._ambientLight.intensity = 0.08;
+		if (this.waterMesh) this.waterMesh.visible = false;
+		if (this.rippleMesh) this.rippleMesh.visible = false;
+		if (this._grassMesh) this._grassMesh.visible = false;
+
+		// Show thermal heatmap floor
+		if (this._thermalFloor) this._thermalFloor.visible = true;
 	}
 
 	_exitThermalRender() {
@@ -1059,27 +1090,30 @@ export class AUVLogic {
 		this.scene.fog = this._savedFog;
 		if (this._ambientLight)
 			this._ambientLight.intensity = this._savedAmbient;
+		if (this.waterMesh) this.waterMesh.visible = true;
+		if (this.rippleMesh) this.rippleMesh.visible = true;
+		if (this._grassMesh) this._grassMesh.visible = true;
 		if (this._matBackup) {
 			this._matBackup.forEach((mat, mesh) => {
 				mesh.material = mat;
 			});
 			this._matBackup = null;
 		}
+		// Hide thermal heatmap floor
+		if (this._thermalFloor) this._thermalFloor.visible = false;
 	}
 
 	_createThermalGrid() {
-		// ── Grid emissive map for thermal object silhouettes ──────────────
-		// White lines on black canvas: emissiveMap × emissive heat color
-		// → only grid lines glow, between-line areas are pitch black
+		// ── 1. Grid emissive map for thermal object silhouettes ─────────
 		const gS = 256,
-			gC = 22;
+			gC = 18;
 		const gcv = document.createElement("canvas");
 		gcv.width = gcv.height = gS;
 		const gctx = gcv.getContext("2d");
 		gctx.fillStyle = "#000";
 		gctx.fillRect(0, 0, gS, gS);
 		gctx.strokeStyle = "#ffffff";
-		gctx.lineWidth = 1.8;
+		gctx.lineWidth = 2.4;
 		for (let x = 0; x <= gS; x += gC) {
 			gctx.beginPath();
 			gctx.moveTo(x, 0);
@@ -1096,30 +1130,26 @@ export class AUVLogic {
 		gridTex.wrapS = gridTex.wrapT = THREE.RepeatWrapping;
 		gridTex.repeat.set(4, 4);
 
-		// Patch every thermalMat: fill → black, only grid lines emit heat color
-		for (const o of this.thermalObjects) {
-			o.thermalMat.color.set(0x000000);
-			o.thermalMat.emissiveMap = gridTex;
-			o.thermalMat.emissiveIntensity = 1.8 + o.heat * 1.2;
-			o.thermalMat.needsUpdate = true;
-		}
+		// Thermal objects: no override needed — MeshBasicMaterial already uses
+		// the full heat color for the entire surface (shows the actual shape)
 
-		// ── Fullscreen scan-line overlay rendered additively on top ───────
+		// ── 2. Thermal heatmap floor ───────────────────────────────────
+		this._createThermalHeatmap();
+
+		// (Heat blobs and glow lights removed – thermal objects render
+		//  as heat-coloured shapes directly via MeshBasicMaterial.)
+
+		// ── 5. Fullscreen scan-line overlay (very subtle) ──────────────
 		const S = 512,
-			C = 20;
+			C = 18;
 		const cv = document.createElement("canvas");
 		cv.width = cv.height = S;
 		const ctx = cv.getContext("2d");
 		ctx.clearRect(0, 0, S, S);
-		ctx.strokeStyle = "rgba(0,230,200,0.15)";
-		ctx.lineWidth = 0.6;
-		for (let x = 0; x <= S; x += C) {
-			ctx.beginPath();
-			ctx.moveTo(x, 0);
-			ctx.lineTo(x, S);
-			ctx.stroke();
-		}
-		for (let y = 0; y <= S; y += C) {
+		// Horizontal scan lines only (subtle CRT effect)
+		ctx.strokeStyle = "rgba(0,200,180,0.03)";
+		ctx.lineWidth = 1;
+		for (let y = 0; y <= S; y += 3) {
 			ctx.beginPath();
 			ctx.moveTo(0, y);
 			ctx.lineTo(S, y);
@@ -1142,8 +1172,102 @@ export class AUVLogic {
 			new THREE.Mesh(new THREE.PlaneGeometry(2, 2), overlayMat),
 		);
 
-		// Flat cold material for all non-thermal scene meshes
-		this._coldMat = new THREE.MeshBasicMaterial({ color: 0x001a20 });
+		// ── 6. Cold material — faintly visible for pool structure ──────
+		this._coldMat = new THREE.MeshBasicMaterial({ color: 0x06182a });
+	}
+
+	// ===================================================================
+	//  Thermal heatmap floor — radiating colored heat blobs on pool floor
+	// ===================================================================
+	_createThermalHeatmap() {
+		const W = 1024,
+			H = 1024;
+		const poolW = 28,
+			poolL = 46;
+		const cv = document.createElement("canvas");
+		cv.width = W;
+		cv.height = H;
+		const ctx = cv.getContext("2d");
+
+		// Dark base
+		ctx.fillStyle = "#010810";
+		ctx.fillRect(0, 0, W, H);
+
+		// Draw heat radial gradients for each thermal source
+		for (const o of this.thermalObjects) {
+			const px = ((o.mesh.position.x + poolW / 2) / poolW) * W;
+			const py = ((o.mesh.position.z + poolL / 2) / poolL) * H;
+			const radius = 80 + o.heat * 300;
+
+			const hc = this._heatColor(o.heat);
+			const r = Math.round(hc.r * 255);
+			const g = Math.round(hc.g * 255);
+			const b = Math.round(hc.b * 255);
+
+			// Main heat blob — large and vivid
+			const grad = ctx.createRadialGradient(px, py, 0, px, py, radius);
+			grad.addColorStop(0, `rgba(${r},${g},${b},1.0)`);
+			grad.addColorStop(0.15, `rgba(${r},${g},${b},0.9)`);
+			grad.addColorStop(0.35, `rgba(${r},${g},${b},0.5)`);
+			grad.addColorStop(0.6, `rgba(${r},${g},${b},0.15)`);
+			grad.addColorStop(1, "rgba(0,0,0,0)");
+			ctx.fillStyle = grad;
+			ctx.fillRect(0, 0, W, H);
+
+			// Inner bright core
+			const innerR = radius * 0.3;
+			const grad2 = ctx.createRadialGradient(px, py, 0, px, py, innerR);
+			grad2.addColorStop(0, "rgba(255,255,255,0.7)");
+			grad2.addColorStop(0.5, `rgba(${r},${g},${b},0.5)`);
+			grad2.addColorStop(1, "rgba(0,0,0,0)");
+			ctx.fillStyle = grad2;
+			ctx.fillRect(0, 0, W, H);
+		}
+
+		// Draw faint grid overlay on the heatmap
+		ctx.globalCompositeOperation = "source-over";
+		const gridSpacing = W / 44;
+		ctx.strokeStyle = "rgba(0,220,200,0.08)";
+		ctx.lineWidth = 0.5;
+		for (let x = 0; x <= W; x += gridSpacing) {
+			ctx.beginPath();
+			ctx.moveTo(x, 0);
+			ctx.lineTo(x, H);
+			ctx.stroke();
+		}
+		for (let y = 0; y <= H; y += gridSpacing) {
+			ctx.beginPath();
+			ctx.moveTo(0, y);
+			ctx.lineTo(W, y);
+			ctx.stroke();
+		}
+
+		this._thermalFloorTex = new THREE.CanvasTexture(cv);
+		const floorMat = new THREE.MeshBasicMaterial({
+			map: this._thermalFloorTex,
+			side: THREE.DoubleSide,
+			depthWrite: false,
+		});
+		this._thermalFloor = new THREE.Mesh(
+			new THREE.PlaneGeometry(poolW, poolL),
+			floorMat,
+		);
+		this._thermalFloor.rotation.x = -Math.PI / 2;
+		this._thermalFloor.position.y = -4.96;
+		this._thermalFloor.visible = false;
+		this.scene.add(this._thermalFloor);
+	}
+
+	// ===================================================================
+	//  Thermal animation — pulse blobs, lights & object glow
+	// ===================================================================
+	_updateThermalEffects(t) {
+		// Pulse thermal object color brightness (lighter/darker)
+		for (const o of this.thermalObjects) {
+			const pulse = 0.75 + Math.sin(t * 2.8 + o.heat * 12) * 0.25;
+			const pc = o.heatColor.clone().multiplyScalar(pulse);
+			o.thermalMat.color.set(pc);
+		}
 	}
 
 	buildPlaceholder() {
@@ -1302,6 +1426,12 @@ export class AUVLogic {
 			this.robotCamera.updateProjectionMatrix();
 			this.thermalCamera.updateProjectionMatrix();
 			this.renderer.setSize(w, h);
+			// Resize thermal pixelation render target
+			if (this._thermalRT) {
+				const tw = Math.floor(w / this._thermalPixelDiv) || 1;
+				const th = Math.floor(h / this._thermalPixelDiv) || 1;
+				this._thermalRT.setSize(tw, th);
+			}
 		};
 		window.addEventListener("keydown", this._kd);
 		window.addEventListener("keyup", this._ku);
@@ -1344,30 +1474,29 @@ export class AUVLogic {
 		return { ping, cpuTemp, signalLabel, bars };
 	}
 
-	getHotTarget() {
-		if (!this.thermalCamera || !this.thermalObjects.length) return null;
+	getThermalTargets() {
+		if (!this.thermalCamera || !this.thermalObjects.length) return [];
 		const frustum = new THREE.Frustum();
 		const projMat = new THREE.Matrix4().multiplyMatrices(
 			this.thermalCamera.projectionMatrix,
 			this.thermalCamera.matrixWorldInverse,
 		);
 		frustum.setFromProjectionMatrix(projMat);
-		let best = null;
+		const targets = [];
 		const wp = new THREE.Vector3();
 		for (const o of this.thermalObjects) {
 			o.mesh.getWorldPosition(wp);
 			if (!frustum.containsPoint(wp)) continue;
-			if (!best || o.heat > best.heat) best = { ...o, _wp: wp.clone() };
+			const ndc = wp.clone().project(this.thermalCamera);
+			targets.push({
+				vx: (ndc.x + 1) / 2,
+				vy: 1 - (ndc.y + 1) / 2,
+				heat: o.heat,
+				label: o.label,
+				tempC: o.tempC,
+			});
 		}
-		if (!best) return null;
-		const ndc = best._wp.clone().project(this.thermalCamera);
-		return {
-			vx: (ndc.x + 1) / 2,
-			vy: 1 - (ndc.y + 1) / 2,
-			heat: best.heat,
-			label: best.label,
-			tempC: best.tempC,
-		};
+		return targets;
 	}
 
 	setPaused(v) {
@@ -1420,8 +1549,8 @@ export class AUVLogic {
 		if (!this.thermalCamera || !this.auv) return;
 		const rx = this.auv.position.x,
 			rz = this.auv.position.z;
-		// Sit just below the waterline, directly under the robot
-		this.thermalCamera.position.set(rx, -0.05, rz);
+		// Sit below the waterline & grass plane, directly under the robot
+		this.thermalCamera.position.set(rx, -0.3, rz);
 		// Look straight down at the pool floor
 		this.thermalCamera.lookAt(rx, -6, rz);
 		// Keep it oriented forward so image isn't rotated
@@ -1479,6 +1608,7 @@ export class AUVLogic {
 		this.updateThermalCamera();
 		this.updateWater(t);
 		this.updateWakeParticles();
+		this._updateThermalEffects(t);
 		if (!this.renderer || !this.scene) return;
 
 		const r = this.renderer;
@@ -1490,16 +1620,28 @@ export class AUVLogic {
 			r.setScissorTest(true);
 			r.clear(true, true, true);
 
-			// Left half — THERMAL (below-water looking down)
+			// Left half — THERMAL (pixelated)
 			this._enterThermalRender();
-			r.setViewport(0, 0, W / 2, H);
-			r.setScissor(0, 0, W / 2, H);
+			// Render thermal to low-res RT
 			this.thermalCamera.aspect = W / 2 / H;
 			this.thermalCamera.updateProjectionMatrix();
+			const splitRtW = Math.floor(W / 2 / this._thermalPixelDiv) || 1;
+			const splitRtH = Math.floor(H / this._thermalPixelDiv) || 1;
+			this._thermalRT.setSize(splitRtW, splitRtH);
+			r.setRenderTarget(this._thermalRT);
+			r.setViewport(0, 0, splitRtW, splitRtH);
+			r.setScissor(0, 0, splitRtW, splitRtH);
+			r.clear(true, true, true);
 			r.render(this.scene, this.thermalCamera);
 			if (this._thermalGridScene)
 				r.render(this._thermalGridScene, this._thermalGridCam);
+			r.setRenderTarget(null);
 			this._exitThermalRender();
+
+			// Blit pixelated thermal to left half of screen
+			r.setViewport(0, 0, W / 2, H);
+			r.setScissor(0, 0, W / 2, H);
+			r.render(this._thermalBlitScene, this._thermalBlitCam);
 
 			// Right half — robot front cam
 			r.clearDepth();
@@ -1518,14 +1660,33 @@ export class AUVLogic {
 			if (this.viewMode === "camera") cam = this.robotCamera;
 			else if (this.viewMode === "thermal") {
 				this._enterThermalRender();
-				cam = this.thermalCamera;
+				// Render to low-res RT (full width)
+				const fullRtW = Math.floor(W / this._thermalPixelDiv) || 1;
+				const fullRtH = Math.floor(H / this._thermalPixelDiv) || 1;
+				this._thermalRT.setSize(fullRtW, fullRtH);
+				this.thermalCamera.aspect = W / H;
+				this.thermalCamera.updateProjectionMatrix();
+				r.autoClear = false; // prevent overlay render from wiping RT
+				r.setRenderTarget(this._thermalRT);
+				r.setViewport(0, 0, fullRtW, fullRtH);
+				r.clear(true, true, true);
+				r.render(this.scene, this.thermalCamera);
+				if (this._thermalGridScene)
+					r.render(this._thermalGridScene, this._thermalGridCam);
+				r.setRenderTarget(null);
+				this._exitThermalRender();
+				// Blit pixelated to full screen
+				r.setViewport(0, 0, W, H);
+				r.clear(true, true, true);
+				r.render(this._thermalBlitScene, this._thermalBlitCam);
+				r.autoClear = true;
+				cam = null;
 			} else cam = this.camera;
-			cam.aspect = W / H;
-			cam.updateProjectionMatrix();
-			r.render(this.scene, cam);
-			if (this.viewMode === "thermal" && this._thermalGridScene)
-				r.render(this._thermalGridScene, this._thermalGridCam);
-			if (this.viewMode === "thermal") this._exitThermalRender();
+			if (cam) {
+				cam.aspect = W / H;
+				cam.updateProjectionMatrix();
+				r.render(this.scene, cam);
+			}
 		}
 	}
 

@@ -246,25 +246,32 @@
 			</div>
 		</div>
 
-		<!-- ── THERMAL DETECTION RETICLE ──────────────────────────── -->
+		<!-- ── THERMAL OBJECT ANNOTATIONS ────────────────────────── -->
 		<div
-			v-if="hotTarget && (viewMode === 'thermal' || viewMode === 'split')"
-			class="hud reticle-wrap"
-			:style="reticleStyle"
+			v-for="(target, i) in thermalTargets"
+			:key="i"
+			v-show="viewMode === 'thermal' || viewMode === 'split'"
+			class="hud thermal-annot"
+			:style="annotationStyle(target)"
 		>
 			<div
-				class="reticle"
-				:class="{ 'reticle-hot': hotTarget.heat > 0.7 }"
-			>
-				<div class="rc tl"></div>
-				<div class="rc tr"></div>
-				<div class="rc bl"></div>
-				<div class="rc br"></div>
-				<div class="reticle-cross"></div>
-				<div class="reticle-info">
-					<span class="ri-name">{{ hotTarget.label }}</span>
-					<span class="ri-temp">{{ hotTarget.tempC }}°C</span>
-				</div>
+				class="ta-pip"
+				:style="{
+					background: heatCssColor(target.heat),
+					boxShadow: '0 0 8px ' + heatCssColor(target.heat),
+				}"
+			></div>
+			<div
+				class="ta-line"
+				:style="{ borderColor: heatCssColor(target.heat) }"
+			></div>
+			<div class="ta-tag">
+				<span class="ta-name">{{ target.label }}</span>
+				<span
+					class="ta-temp"
+					:style="{ color: heatCssColor(target.heat) }"
+					>{{ target.tempC }}°C</span
+				>
 			</div>
 		</div>
 
@@ -342,18 +349,18 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, onUnmounted } from "vue";
+import { ref, reactive, onMounted, onUnmounted } from "vue";
 import { AUVLogic } from "../composable/auvLogic.js";
 
 const mainCanvas = ref(null);
 let auvLogic = null;
 let statsInterval = null;
-let reticleInterval = null;
+let thermalInterval = null;
 
 const viewMode = ref("split");
 const connected = ref(true);
 const menuOpen = ref(false);
-const hotTarget = ref(null);
+const thermalTargets = ref([]);
 const stats = reactive({
 	ping: 16,
 	cpuTemp: 58.0,
@@ -361,19 +368,23 @@ const stats = reactive({
 	bars: 3,
 });
 
-// Position the reticle inside the thermal viewport
-const reticleStyle = computed(() => {
-	if (!hotTarget.value) return {};
-	const xPct =
-		viewMode.value === "split"
-			? hotTarget.value.vx * 50 // left half only
-			: hotTarget.value.vx * 100;
+// Position an annotation inside the thermal viewport
+function annotationStyle(target) {
+	const xPct = viewMode.value === "split" ? target.vx * 50 : target.vx * 100;
 	return {
 		left: xPct + "%",
-		top: hotTarget.value.vy * 100 + "%",
+		top: target.vy * 100 + "%",
 		transform: "translate(-50%, -50%)",
 	};
-});
+}
+
+function heatCssColor(heat) {
+	if (heat > 0.8) return "#ff6666";
+	if (heat > 0.6) return "#ff0000";
+	if (heat > 0.4) return "#cc0000";
+	if (heat > 0.2) return "#990000";
+	return "#660000";
+}
 
 function setMode(mode) {
 	viewMode.value = mode;
@@ -419,9 +430,9 @@ onMounted(() => {
 			stats.signalLabel = s.signalLabel;
 			stats.bars = s.bars;
 		}, 400);
-		reticleInterval = setInterval(() => {
+		thermalInterval = setInterval(() => {
 			if (!auvLogic) return;
-			hotTarget.value = auvLogic.getHotTarget();
+			thermalTargets.value = auvLogic.getThermalTargets();
 		}, 80);
 	}, 100);
 });
@@ -429,7 +440,7 @@ onMounted(() => {
 onUnmounted(() => {
 	window.removeEventListener("keydown", _escHandler);
 	clearInterval(statsInterval);
-	clearInterval(reticleInterval);
+	clearInterval(thermalInterval);
 	auvLogic?.dispose();
 });
 </script>
@@ -722,12 +733,12 @@ onUnmounted(() => {
 	height: 100%;
 	pointer-events: none;
 	z-index: 6;
-	mix-blend-mode: color;
-	background: radial-gradient(
-		ellipse at 40% 50%,
-		rgba(255, 60, 30, 0.85) 0%,
-		rgba(200, 0, 60, 0.75) 50%,
-		rgba(140, 0, 80, 0.65) 100%
+	mix-blend-mode: soft-light;
+	background: linear-gradient(
+		180deg,
+		rgba(0, 20, 40, 0.15) 0%,
+		rgba(0, 40, 60, 0.1) 50%,
+		rgba(0, 20, 50, 0.15) 100%
 	);
 	transition:
 		width 0.2s,
@@ -740,119 +751,49 @@ onUnmounted(() => {
 	opacity: 0;
 }
 
-/* ══ THERMAL DETECTION RETICLE ══════════════════════════════════════════════ */
-.reticle-wrap {
+/* ══ THERMAL OBJECT ANNOTATIONS ════════════════════════════════════════════ */
+.thermal-annot {
 	position: absolute;
 	pointer-events: none;
 	z-index: 40;
+	display: flex;
+	align-items: center;
+	gap: 0;
 }
-.reticle {
-	position: relative;
-	width: 72px;
-	height: 72px;
+.ta-pip {
+	width: 6px;
+	height: 6px;
+	border-radius: 50%;
+	flex-shrink: 0;
 }
-.rc {
-	position: absolute;
-	width: 14px;
-	height: 14px;
-	border-color: #0ff;
-	border-style: solid;
-	border-width: 0;
+.ta-line {
+	width: 22px;
+	height: 0;
+	border-top: 1px dashed;
+	opacity: 0.6;
 }
-.rc.tl {
-	top: 0;
-	left: 0;
-	border-top-width: 2px;
-	border-left-width: 2px;
-}
-.rc.tr {
-	top: 0;
-	right: 0;
-	border-top-width: 2px;
-	border-right-width: 2px;
-}
-.rc.bl {
-	bottom: 0;
-	left: 0;
-	border-bottom-width: 2px;
-	border-left-width: 2px;
-}
-.rc.br {
-	bottom: 0;
-	right: 0;
-	border-bottom-width: 2px;
-	border-right-width: 2px;
-}
-
-.reticle-hot .rc {
-	border-color: #f40;
-	animation: reticle-pulse 0.6s infinite alternate;
-}
-@keyframes reticle-pulse {
-	from {
-		opacity: 1;
-	}
-	to {
-		opacity: 0.35;
-	}
-}
-
-.reticle-cross {
-	position: absolute;
-	inset: 0;
-	margin: auto;
-	width: 12px;
-	height: 12px;
-}
-.reticle-cross::before,
-.reticle-cross::after {
-	content: "";
-	position: absolute;
-	background: rgba(0, 255, 255, 0.7);
-}
-.reticle-cross::before {
-	width: 1px;
-	height: 100%;
-	left: 50%;
-}
-.reticle-cross::after {
-	height: 1px;
-	width: 100%;
-	top: 50%;
-}
-.reticle-hot .reticle-cross::before,
-.reticle-hot .reticle-cross::after {
-	background: rgba(255, 80, 0, 0.8);
-}
-
-.reticle-info {
-	position: absolute;
-	bottom: -34px;
-	left: 50%;
-	transform: translateX(-50%);
+.ta-tag {
 	display: flex;
 	flex-direction: column;
-	align-items: center;
 	gap: 1px;
+	background: rgba(0, 0, 0, 0.55);
+	padding: 2px 6px;
+	border-radius: 3px;
+	border: 1px solid rgba(0, 255, 255, 0.2);
 	white-space: nowrap;
 }
-.ri-name {
+.ta-name {
 	font-family: "Courier New", monospace;
-	font-size: 9px;
+	font-size: 8px;
 	font-weight: 700;
 	letter-spacing: 0.1em;
 	color: #0ff;
-	text-shadow: 0 0 6px #0ff;
+	text-shadow: 0 0 4px #0ff;
 }
-.ri-temp {
+.ta-temp {
 	font-family: "Courier New", monospace;
-	font-size: 9px;
-	color: #111827;
-	opacity: 0.85;
-}
-.reticle-hot .ri-name {
-	color: #ff5000;
-	text-shadow: 0 0 6px #ff5000;
+	font-size: 10px;
+	font-weight: 700;
 }
 
 /* ══ ESC MENU ════════════════════════════════════════════════════════════════ */
